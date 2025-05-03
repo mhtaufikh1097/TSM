@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Form Inspeksi</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .form-section { border: 1px solid #ccc; padding: 15px; margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    button { padding: 6px 10px; margin: 3px; }
+    .status-label { font-weight: bold; }
+  </style>
+</head>
+<body>
+
+<h2>Form Petugas Inspeksi</h2>
+<div class="form-section">
+  <input type="text" id="namaPenemu" placeholder="Nama Penemu"><br><br>
+  <input type="file" id="hasilGambar"><br><br>
+  <input type="file" id="hasilDokumen"><br><br>
+  <button onclick="submitInspeksi()">Submit ke QA</button>
+</div>
+
+<h2>Tampilan QA</h2>
+<div class="form-section">
+  <table>
+    <thead>
+      <tr>
+        <th>Nama Penemu</th>
+        <th>File Gambar</th>
+        <th>File Dok</th>
+        <th>Isi Laporan</th>
+        <th>Status</th>
+        <th>Aksi</th>
+      </tr>
+    </thead>
+    <tbody id="qaTableBody"></tbody>
+  </table>
+</div>
+
+<h2>Tampilan PM</h2>
+<div class="form-section">
+  <table>
+    <thead>
+      <tr>
+        <th>Nama Penemu</th>
+        <th>Laporan</th>
+        <th>Status</th>
+        <th>Aksi PM</th>
+      </tr>
+    </thead>
+    <tbody id="pmTableBody"></tbody>
+  </table>
+</div>
+
+<script>
+  const qaData = [];
+
+  function submitInspeksi() {
+    const nama = document.getElementById("namaPenemu").value;
+    const gambar = document.getElementById("hasilGambar").files[0]?.name || "Belum dipilih";
+    const dokumen = document.getElementById("hasilDokumen").files[0]?.name || "Belum dipilih";
+
+    if (!nama) {
+      alert("Nama penemu harus diisi!");
+      return;
+    }
+
+    qaData.push({
+      nama,
+      gambar,
+      dokumen,
+      laporan: "",
+      status: "Menunggu Laporan QA",
+      feedback: "",
+      assigned: false
+    });
+
+    renderQATable();
+    renderPMTable();
+    alert("Data dikirim ke QA!");
+  }
+
+  function renderQATable() {
+    const tbody = document.getElementById("qaTableBody");
+    tbody.innerHTML = "";
+
+    qaData.forEach((data, index) => {
+      const laporanInput = `<input type="text" id="laporan-${index}" placeholder="Isi laporan" value="${data.laporan}" ${data.status !== "Menunggu Laporan QA" ? "disabled" : ""}>`;
+      let aksiQA = "";
+
+      if (data.status === "Menunggu Laporan QA") {
+        aksiQA = `<button onclick="kirimKePM(${index})">Kirim ke PM</button>`;
+      } else if (data.status === "Accepted by PM" && !data.assigned) {
+        aksiQA = `<button onclick="assignTiket(${index})">Assign</button>`;
+      } else if (data.status === "On Process") {
+        aksiQA = `<button onclick="closeTiket(${index})">Close Tiket</button>`;
+      }
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${data.nama}</td>
+        <td>${data.gambar}</td>
+        <td>${data.dokumen}</td>
+        <td>${laporanInput}</td>
+        <td class="status-label">${data.status}</td>
+        <td>${aksiQA}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function renderPMTable() {
+    const tbody = document.getElementById("pmTableBody");
+    tbody.innerHTML = "";
+
+    qaData.forEach((data, index) => {
+      if (data.status !== "Menunggu Feedback PM") return;
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${data.nama}</td>
+        <td>${data.laporan}</td>
+        <td class="status-label">${data.status}</td>
+        <td>
+          <button onclick="pmFeedback(${index}, 'Accepted')">Accept</button>
+          <button onclick="pmFeedback(${index}, 'Rejected')">Reject</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function kirimKePM(index) {
+    const laporan = document.getElementById(`laporan-${index}`).value.trim();
+    if (!laporan) {
+      alert("Isi laporan tidak boleh kosong!");
+      return;
+    }
+    qaData[index].laporan = laporan;
+    qaData[index].status = "Menunggu Feedback PM";
+    renderQATable();
+    renderPMTable();
+  }
+
+  function pmFeedback(index, decision) {
+    qaData[index].status = decision === "Accepted" ? "Accepted by PM" : "Rejected by PM";
+    renderQATable();
+    renderPMTable();
+    alert(`PM memberikan feedback: ${decision}`);
+  }
+
+  function assignTiket(index) {
+    qaData[index].status = "On Process";
+    qaData[index].assigned = true;
+    renderQATable();
+  }
+
+  function closeTiket(index) {
+    qaData[index].status = "Closed";
+    renderQATable();
+    alert("Tiket berhasil ditutup!");
+  }
+</script>
+
+</body>
+</html>
