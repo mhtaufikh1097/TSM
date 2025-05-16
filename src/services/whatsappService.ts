@@ -15,7 +15,13 @@ interface WhatsAppMessageParams {
  */
 export const sendWhatsAppMessage = async (params: WhatsAppMessageParams): Promise<any> => {
   try {
-    const response = await fetch('/api/whatsapp/send-message', {
+
+    const baseUrl =
+      typeof window === "undefined"
+        ? process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
+        : "";
+
+    const response = await fetch(`${baseUrl}/api/whatsapp/send-message`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -62,5 +68,22 @@ export const sendInspectionReport = async (inspectionData: any): Promise<any> =>
   return sendWhatsAppMessage({
     message: messageContent,
     to: process.env.NEXT_PUBLIC_ADMIN_WHATSAPP_NUMBER || ''
+  });
+};
+
+
+export const formatVerificationCode = (verificationCode: any): string => {
+  return `
+  *Your Verification Code*
+  Code : ${verificationCode}`.trim();
+};
+
+
+export const sendVerificationCode = async (verificationcode: string, phone_number: any): Promise<any> => {
+  const messageContent = formatVerificationCode(verificationcode);
+
+  return sendWhatsAppMessage({
+    message: messageContent,
+    to: phone_number || ''
   });
 };

@@ -40,7 +40,7 @@ const InspectionForm: React.FC = () => {
   const { user } = useAuth();
   const [formData, setFormData] = useState<InspectionFormData>({
     ...initialFormState,
-    inspectorName: user?.name || '',
+    inspectorName: user?.fullName || '',
   });
   
   const [snackbar, setSnackbar] = useState({
@@ -71,14 +71,13 @@ const InspectionForm: React.FC = () => {
         severity: 'success'
       });
       
-      // Reset the form
       setFormData({
         ...initialFormState,
-        inspectorName: user?.name || '',
+        inspectorName: user?.fullName || '',
       });
       
     } catch (error) {
-      // Show error message
+     
       setSnackbar({
         open: true,
         message: 'Failed to send WhatsApp message. Please try again.',

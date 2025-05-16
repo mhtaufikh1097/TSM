@@ -69,7 +69,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, activeTab, setActiveTab
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
               <Typography variant="body2" sx={{ mr: 2, display: { xs: 'none', sm: 'block' } }}>
-                {user?.phoneNumber}
+                {user?.fullName}
               </Typography>
               <Avatar sx={{ bgcolor: theme.palette.primary.main }}>
                 <PersonIcon />

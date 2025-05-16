@@ -1,7 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
-// Secret key for JWT signing - use environment variable in production
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-production';
 
 // Hash PIN for secure storage
@@ -16,11 +15,11 @@ export const verifyPin = async (inputPin: string, hashedPin: string): Promise<bo
 };
 
 // Generate JWT token
-export const generateToken = (userId: number, phoneNumber: string): string => {
+export const generateToken = (userId: number, phoneNumber: string, fullName : string): string => {
   return jwt.sign(
-    { userId, phoneNumber },
+    { userId, phoneNumber, fullName },
     JWT_SECRET,
-    { expiresIn: '7d' } // Token expires in 7 days
+    { expiresIn: '1d' } // Token expires in 7 days
   );
 };
 
@@ -52,7 +51,7 @@ export const generateVerificationCode = (): string => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-// Mock OTP verification - in production, integrate with SMS provider
+
 export const sendOtp = async (phoneNumber: string, otp: string): Promise<boolean> => {
   // In a real application, you would integrate with an SMS provider here
   console.log(`Sending OTP ${otp} to ${phoneNumber}`);

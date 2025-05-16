@@ -2,6 +2,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import pool from '@/db/connection';
 import { validatePhoneNumber, generateVerificationCode } from '@/utils/auth-utils';
+import { sendInspectionReport, sendVerificationCode } from '@/services/whatsappService';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -41,16 +42,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // In a real application, you would send this code via SMS
       // For demo purposes, we'll return it in the response
       // NOTE: In production, NEVER return the verification code to the client
-      if (process.env.NODE_ENV === 'development') {
-        return res.status(200).json({ 
-          message: 'Verification code sent successfully',
-          code: verificationCode // Only for development!
-        });
-      } else {
-        return res.status(200).json({ 
-          message: 'Verification code sent successfully' 
-        });
-      }
+      // if (process.env.NODE_ENV === 'development') {
+      //   return res.status(200).json({ 
+      //     message: 'Verification code sent successfully',
+      //     code: verificationCode // Only for development!
+      //   });
+      // } else {
+          await sendVerificationCode(verificationCode, phoneNumber);
+          return res.status(200).json({ message: 'Verification code sent successfully' });
+      // }
     } finally {
       connection.release();
     }
