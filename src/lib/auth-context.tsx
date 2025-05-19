@@ -4,12 +4,16 @@ interface User {
   id: number;
   phoneNumber: string;
   fullName: string;
+  role: 'inspector' | 'qc' | 'pm';
 }
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   isAuthenticated: boolean;
+  isPm : boolean;
+  isInspector : boolean;
+  isQc : boolean;
   login: (token: string, user: User) => void;
   logout: () => void;
 }
@@ -55,6 +59,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       user, 
       loading, 
       isAuthenticated: !!user,
+      isPm: user?.role === 'pm',
+      isInspector: user?.role === 'inspector',
+      isQc: user?.role === 'qc',
       login, 
       logout 
     }}>

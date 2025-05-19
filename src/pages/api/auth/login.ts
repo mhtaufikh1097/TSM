@@ -25,7 +25,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
       // Find user by phone number
       const [users] = await connection.execute(
-        'SELECT id, phone_number, pin, full_name FROM users WHERE phone_number = ?',
+        'SELECT id, phone_number, pin, full_name, role FROM users WHERE phone_number = ?',
         [phoneNumber]
       );
 
@@ -43,7 +43,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       // Generate JWT token
-      const token = generateToken(user.id, user.phone_number, user.full_name );
+      const token = generateToken(user.id, user.phone_number, user.full_name, user.role);
 
       return res.status(200).json({ 
         message: 'Login successful',
@@ -52,6 +52,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           id: user.id,
           phoneNumber: user.phone_number,
           fullName: user.full_name,
+          role : user.role,
         }
       });
     } finally {

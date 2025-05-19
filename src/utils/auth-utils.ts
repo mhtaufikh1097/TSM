@@ -15,9 +15,9 @@ export const verifyPin = async (inputPin: string, hashedPin: string): Promise<bo
 };
 
 // Generate JWT token
-export const generateToken = (userId: number, phoneNumber: string, fullName : string): string => {
+export const generateToken = (userId: number, phoneNumber: string, fullName : string, role : string): string => {
   return jwt.sign(
-    { userId, phoneNumber, fullName },
+    { userId, phoneNumber, fullName, role},
     JWT_SECRET,
     { expiresIn: '1d' } // Token expires in 7 days
   );
