@@ -1,7 +1,7 @@
 // pages/api/inspections/approve/[token].ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { validateApprovalToken } from '@/services/whatsappService';
-import { updateInspectionStatus, getInspectionById } from '@/services/inspectionService';
+import { updateInspectionStatus, getInspectionById } from '@/services/clientInspectionService';
 import { sendApprovalNotification } from '@/services/whatsappService';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {

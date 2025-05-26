@@ -1,4 +1,4 @@
-// services/inspectionService.ts
+// lib/inspectionService.ts - Server-side only service
 import { prisma } from '@/lib/prisma';
 import { FileType } from '@prisma/client';
 
@@ -240,6 +240,110 @@ export const getUsersByRole = async (role: 'qc' | 'pm'): Promise<{id: number, ph
     return users;
   } catch (error) {
     console.error(`Error fetching ${role} users:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Gets QC and PM upliners for a specific inspector by traversing the hierarchy
+ * Hierarchy: inspector -> qc -> pm
+ * @param {number} inspectorId - ID of the inspector
+ * @returns {Promise<{qc: Array<{id: number, phoneNumber: string, fullName: string}>, pm: Array<{id: number, phoneNumber: string, fullName: string}>}>} - Object containing QC and PM upliners
+ */
+export const getInspectorUpliners = async (inspectorId: number): Promise<{
+  qc: Array<{id: number, phoneNumber: string, fullName: string}>,
+  pm: Array<{id: number, phoneNumber: string, fullName: string}>
+}> => {
+  try {
+    // Get the inspector with their upliner chain
+    const inspector = await prisma.user.findUnique({
+      where: { id: inspectorId },
+      include: {
+        upliner: {
+          include: {
+            upliner: true // This will get the PM (upliner of QC)
+          }
+        }
+      }
+    });
+
+    if (!inspector) {
+      throw new Error(`Inspector with ID ${inspectorId} not found`);
+    }
+
+    const qcUsers: Array<{id: number, phoneNumber: string, fullName: string}> = [];
+    const pmUsers: Array<{id: number, phoneNumber: string, fullName: string}> = [];
+
+    // Check if inspector has a direct upliner (should be QC)
+    if (inspector.upliner) {
+      const qcUpliner = inspector.upliner;
+      
+      // Verify that the direct upliner is actually a QC
+      if (qcUpliner.role === 'qc') {
+        qcUsers.push({
+          id: qcUpliner.id,
+          phoneNumber: qcUpliner.phoneNumber,
+          fullName: qcUpliner.fullName || `QC User ${qcUpliner.id}`
+        });
+
+        // Check if QC has an upliner (should be PM)
+        if (qcUpliner.upliner) {
+          const pmUpliner = qcUpliner.upliner;
+          
+          // Verify that the QC's upliner is actually a PM
+          if (pmUpliner.role === 'pm') {
+            pmUsers.push({
+              id: pmUpliner.id,
+              phoneNumber: pmUpliner.phoneNumber,
+              fullName: pmUpliner.fullName || `PM User ${pmUpliner.id}`
+            });
+          }
+        }
+      }
+    }
+
+    // If no upliners found through hierarchy, fall back to finding all QC/PM users
+    // This handles cases where the hierarchy might not be properly set up
+    if (qcUsers.length === 0) {
+      console.warn(`No QC upliner found for inspector ${inspectorId}, falling back to all QC users`);
+      const allQcUsers = await prisma.user.findMany({
+        where: { role: 'qc' },
+        select: {
+          id: true,
+          phoneNumber: true,
+          fullName: true
+        }
+      });
+      qcUsers.push(...allQcUsers.map(user => ({
+        id: user.id,
+        phoneNumber: user.phoneNumber,
+        fullName: user.fullName || `QC User ${user.id}`
+      })));
+    }
+
+    if (pmUsers.length === 0) {
+      console.warn(`No PM upliner found for inspector ${inspectorId}, falling back to all PM users`);
+      const allPmUsers = await prisma.user.findMany({
+        where: { role: 'pm' },
+        select: {
+          id: true,
+          phoneNumber: true,
+          fullName: true
+        }
+      });
+      pmUsers.push(...allPmUsers.map(user => ({
+        id: user.id,
+        phoneNumber: user.phoneNumber,
+        fullName: user.fullName || `PM User ${user.id}`
+      })));
+    }
+
+    return {
+      qc: qcUsers,
+      pm: pmUsers
+    };
+  } catch (error) {
+    console.error('Error fetching inspector upliners:', error);
     throw error;
   }
 };

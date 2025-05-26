@@ -18,7 +18,6 @@ import {
   ListItemIcon,
   ListItemText,
   IconButton,
-  Chip,
   Stack,
   CircularProgress
 } from '@mui/material';
@@ -28,12 +27,9 @@ import ImageIcon from '@mui/icons-material/Image';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useAuth } from '@/lib/auth-context';
-import { createInspection } from '@/services/inspectionService';
+import { createInspection, getInspectorUpliners } from '@/services/clientInspectionService';
 import { sendInspectionReport } from '@/services/whatsappService';
 import { SelectChangeEvent } from '@mui/material/Select';
-// or
-// import { SelectChangeEvent } from '@mui/material';
-// import { getInspectorUpliners } from '@/services/inspectionService';
 
 interface InspectionFormData {
   inspectionType: string;
@@ -78,8 +74,16 @@ const InspectionForm: React.FC = () => {
     severity: 'success' as 'success' | 'error'
   });
 
-  const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | { name?: string; value: unknown }>) => {
-    const { name, value } = e.target as { name: string; value: string };
+  const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  const handleSelectChange = (e: SelectChangeEvent) => {
+    const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
       [name]: value
@@ -185,8 +189,8 @@ const InspectionForm: React.FC = () => {
       const upliners = await getInspectorUpliners(user?.id || 0);
       
       const recipients = [
-        ...upliners.qc.map(user => user.phoneNumber),
-        ...upliners.pm.map(user => user.phoneNumber)
+        ...upliners.qc.map((user: { phoneNumber: string }) => user.phoneNumber),
+        ...upliners.pm.map((user: { phoneNumber: string }) => user.phoneNumber)
       ];
       
       // Send WhatsApp notifications with approval links
@@ -296,7 +300,7 @@ const InspectionForm: React.FC = () => {
                   labelId="severity-label"
                   name="severity"
                   value={formData.severity}
-                  onChange={handleFormChange}
+                  onChange={handleSelectChange}
                   label="Severity"
                 >
                   <MenuItem value="low">Low</MenuItem>
