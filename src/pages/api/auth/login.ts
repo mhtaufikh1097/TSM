@@ -1,6 +1,7 @@
 // pages/api/auth/login.ts
 import { NextApiRequest, NextApiResponse } from 'next';
-import pool from '@/db/connection';
+import { prisma } from '@/lib/prisma';
+
 import { verifyPin, generateToken, validatePhoneNumber } from '@/utils/auth-utils';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -20,44 +21,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ message: 'PIN is required' });
     }
 
-    const connection = await pool.getConnection();
-    
-    try {
-      // Find user by phone number
-      const [users] = await connection.execute(
-        'SELECT id, phone_number, pin, full_name, role FROM users WHERE phone_number = ?',
-        [phoneNumber]
-      );
+    const user = await prisma.user.findUnique({
+      where: { phoneNumber },
+      select: {
+        id: true,
+        phoneNumber: true,
+        pin: true,
+        fullName: true,
+        role : true,
+      },
+    });
 
-      const usersArray = users as any[];
-      if (usersArray.length === 0) {
-        return res.status(401).json({ message: 'Invalid credentials' });
-      }
-
-      const user = usersArray[0];
-
-      // Verify PIN
-      const isValidPin = await verifyPin(pin, user.pin);
-      if (!isValidPin) {
-        return res.status(401).json({ message: 'Invalid credentials' });
-      }
-
-      // Generate JWT token
-      const token = generateToken(user.id, user.phone_number, user.full_name, user.role);
-
-      return res.status(200).json({ 
-        message: 'Login successful',
-        token,
-        user: {
-          id: user.id,
-          phoneNumber: user.phone_number,
-          fullName: user.full_name,
-          role : user.role,
-        }
-      });
-    } finally {
-      connection.release();
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
     }
+
+    const isPinValid = await verifyPin(pin, user.pin);
+    if (!isPinValid) {
+      return res.status(401).json({ message: 'Invalid PIN' });
+    }
+
+    const token = generateToken(user.id, user.phoneNumber ?? '', user.fullName ?? '', user.role);
+
+    return res.status(200).json({
+      message: 'Login successful',
+      token,
+      user: {
+        id: user.id,
+        phoneNumber: user.phoneNumber,
+        fullName: user.fullName,
+        role: user.role,
+      },
+    });
+    
   } catch (error) {
     console.error('Error during login:', error);
     return res.status(500).json({ message: 'Internal server error' });

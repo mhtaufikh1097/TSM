@@ -1,0 +1,105 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          Int       @id @default(autoincrement())
+  phoneNumber String    @unique @map("phone_number")
+  pin         String
+  fullName    String?   @map("full_name")
+  email       String?
+  role        Role      @default(inspector)
+  upliner     User?     @relation("Upliner", fields: [uplinerId], references: [id])
+  uplinerId   Int?      @map("upliner_id")
+  uplines     User[]    @relation("Upliner")
+  inspections Inspection[] @relation("Inspector")
+  qcApproved  Inspection[] @relation("QcApprover")
+  pmApproved  Inspection[] @relation("PmApprover")
+  rejected    Inspection[] @relation("Rejecter")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+}
+
+model VerificationCode {
+  id          Int      @id @default(autoincrement())
+  phoneNumber String   @map("phone_number")
+  code        String
+  expiresAt   DateTime @map("expires_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+}
+
+model Inspection {
+  id             Int       @id @default(autoincrement())
+  inspectionType String    @map("inspection_type")
+  location       String
+  findings       String
+  actionRequired String    @map("action_required")
+  severity       Severity  @default(low)
+  status         Status    @default(pending)
+  inspector      User      @relation("Inspector", fields: [inspectorId], references: [id])
+  inspectorId    Int       @map("inspector_id")
+  qcApprovedBy   User?     @relation("QcApprover", fields: [qcApprovedById], references: [id])
+  qcApprovedById Int?      @map("qc_approved_by")
+  qcApprovedAt   DateTime? @map("qc_approved_at")
+  qcComment      String?   @map("qc_comment")
+  pmApprovedBy   User?     @relation("PmApprover", fields: [pmApprovedById], references: [id])
+  pmApprovedById Int?      @map("pm_approved_by")
+  pmApprovedAt   DateTime? @map("pm_approved_at")
+  pmComment      String?   @map("pm_comment")
+  rejectedBy     User?     @relation("Rejecter", fields: [rejectedById], references: [id])
+  rejectedById   Int?      @map("rejected_by")
+  rejectedAt     DateTime? @map("rejected_at")
+  rejectionReason String?  @map("rejection_reason")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  files          InspectionFile[]
+}
+
+model InspectionFile {
+  id           Int      @id @default(autoincrement())
+  inspection   Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  inspectionId Int      @map("inspection_id")
+  filePath     String   @map("file_path")
+  fileType     FileType @map("file_type")
+  fileName     String   @map("file_name")
+  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+}
+
+enum Role {
+  inspector
+  qc
+  pm
+}
+
+enum Severity {
+  low
+  medium
+  high
+  critical
+}
+
+enum Status {
+  pending
+  qc_approved
+  pm_approved
+  rejected
+}
+
+enum FileType {
+  image
+  pdf
+  video
+  other
+}
+
