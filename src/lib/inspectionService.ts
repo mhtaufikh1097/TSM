@@ -1,6 +1,7 @@
 // lib/inspectionService.ts - Server-side only service
 import { prisma } from '@/lib/prisma';
 import { FileType } from '@prisma/client';
+import { sendInspectionReport } from '@/services/whatsappService';
 
 /**
  * Creates a new inspection record with uploaded files
@@ -8,6 +9,7 @@ import { FileType } from '@prisma/client';
  * @param {Array<{path: string, name: string, type: string}>} files - Uploaded files information
  * @returns {Promise<any>} - Created inspection record with ID
  */
+
 export const createInspection = async (inspectionData: any, files: Array<{path: string, name: string, type: string}> = []): Promise<any> => {
   try {
     // Start a transaction to ensure both inspection and files are saved
@@ -36,7 +38,7 @@ export const createInspection = async (inspectionData: any, files: Array<{path: 
             fileName: file.name,
             fileType: file.type.startsWith('image/')
               ? FileType.image
-              : FileType.document
+              : FileType.pdf
           }))
         });
       }

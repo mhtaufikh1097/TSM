@@ -1,8 +1,6 @@
 /**
  * Enhanced service for handling WhatsApp messages including approval links
  */
-import { nanoid } from 'nanoid';
-
 interface WhatsAppMessageParams {
   message: string;
   to: string;
@@ -12,6 +10,13 @@ interface ApprovalLink {
   role: 'qc' | 'pm';
   token: string;
   inspectionId: number;
+}
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  message?: string;
+  error?: string;
 }
 
 // Store for temporary approval tokens
@@ -54,22 +59,34 @@ export const sendWhatsAppMessage = async (params: WhatsAppMessageParams): Promis
  * @param {'qc'|'pm'} role - The role that should approve
  * @returns {string} - The approval link
  */
-export const generateApprovalLink = (inspectionId: number, role: 'qc' | 'pm'): string => {
+/**
+ * Enhanced generateDetailLink dengan database storage
+ */
+export const generateDetailLink = async (
+  inspectionId: number,
+  role: 'qc' | 'pm'
+): Promise<string> => {
   const baseUrl =
     typeof window === "undefined"
-      ? process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
+      ? process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3002"
       : window.location.origin;
-  
-  const token = nanoid(10);
-  
-  // Store token with inspection details (in a real app, this would be in a database)
-  approvalTokens.set(token, {
-    role,
-    token,
-    inspectionId
+
+  // Kirim expirationHours dengan nama yang benar
+  const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/store/token`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ inspectionId, role, expirationHours: 24 }),
   });
-  
-  return `${baseUrl}/inspections/approve/${token}`;
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result.message || 'Failed to get approval token');
+  }
+
+  return `${baseUrl}/inspections/detail/${inspectionId}?token=${result.token}&role=${role}`;
 };
 
 /**
@@ -77,15 +94,38 @@ export const generateApprovalLink = (inspectionId: number, role: 'qc' | 'pm'): s
  * @param {string} token - The approval token to validate
  * @returns {ApprovalLink|null} - The approval details or null if invalid
  */
-export const validateApprovalToken = (token: string): ApprovalLink | null => {
-  const approvalDetails = approvalTokens.get(token);
-  
-  if (!approvalDetails) {
+/**
+ * Enhanced validateApprovalToken dengan database
+ */
+export const validateApprovalToken = async (
+  token: string
+): Promise<ApprovalLink | null> => {
+  try {
+    const baseUrl =
+      typeof window === "undefined"
+        ? process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3002"
+        : window.location.origin;
+
+    const response = await fetch(`${baseUrl}/api/store/validate?token=${encodeURIComponent(token)}`);
+    if (!response.ok) {
+      return null;
+    }
+    const tokenData = await response.json();
+
+    if (tokenData.isUsed) {
+      console.log('Token already used:', token);
+      return null;
+    }
+
+    return {
+      token: tokenData.token,
+      inspectionId: tokenData.inspectionId,
+      role: tokenData.role,
+    };
+  } catch (error) {
+    console.error('Error validating approval token:', error);
     return null;
   }
-  
-  // In a production environment, you might want to check expiration time
-  return approvalDetails;
 };
 
 /**
@@ -94,23 +134,41 @@ export const validateApprovalToken = (token: string): ApprovalLink | null => {
  * @param {number} inspectionId - The ID of the saved inspection
  * @returns {string} - Formatted message string
  */
-export const formatInspectionMessage = (inspectionData: any, inspectionId: number): string => {
-  const qcApprovalLink = generateApprovalLink(inspectionId, 'qc');
-  const pmApprovalLink = generateApprovalLink(inspectionId, 'pm');
-  
-  return `
-*New Inspection Report #${inspectionId}*
-Type: ${inspectionData.inspectionType}
-Location: ${inspectionData.location}
-Inspector: ${inspectionData.inspectorName}
-Findings: ${inspectionData.findings}
-Action Required: ${inspectionData.actionRequired}
-Severity: ${inspectionData.severity.toUpperCase()}
+/**
+ * Enhanced formatInspectionMessage dengan async generateDetailLink
+ */
+export const formatInspectionMessage = async (
+  inspectionData: any,
+  inspectionId: number
+): Promise<string> => {
+  const qcDetailLink = await generateDetailLink(inspectionId, 'qc');
+  const pmDetailLink = await generateDetailLink(inspectionId, 'pm');
 
-*Approval Links:*
-QC Approval: ${qcApprovalLink}
-PM Approval: ${pmApprovalLink}
+  const message = `
+🔍 *New Inspection Report #${inspectionId}*
+
+📋 **Details:**
+• Type: ${inspectionData.inspectionType}
+• Location: ${inspectionData.location}
+• Inspector: ${inspectionData.inspectorName || 'N/A'}
+• Severity: ${inspectionData.severity.toUpperCase()}
+
+📝 **Findings:**
+${inspectionData.findings}
+
+⚠️ **Action Required:**
+${inspectionData.actionRequired}
+
+📅 Created: ${new Date().toLocaleString()}
+
+*Review Links:*
+🔍 QC Review: ${qcDetailLink}
+📋 PM Review: ${pmDetailLink}
+
+Click the link above to view full details and take action.
   `.trim();
+
+  return message;
 };
 
 /**
@@ -120,34 +178,41 @@ PM Approval: ${pmApprovalLink}
  * @param {string[]} recipientNumbers - List of WhatsApp numbers to notify
  * @returns {Promise<any>} - Response from the WhatsApp API
  */
+/**
+ * Enhanced sendInspectionReport dengan async message formatting
+ */
 export const sendInspectionReport = async (
-  inspectionData: any, 
+  inspectionData: any,
   inspectionId: number,
   recipientNumbers: string[] = []
 ): Promise<any> => {
-  const messageContent = formatInspectionMessage(inspectionData, inspectionId);
-  
+  const messageContent = await formatInspectionMessage(inspectionData, inspectionId);
+
   // Default admin number
-  const adminNumber = ''; // process.env.NEXT_PUBLIC_ADMIN_WHATSAPP_NUMBER || '';
-  
+  const adminNumber = process.env.NEXT_PUBLIC_ADMIN_WHATSAPP_NUMBER || '';
+
   // Combine admin number with additional recipients
   const allRecipients = Array.from(new Set([adminNumber, ...recipientNumbers])).filter(Boolean);
-  
+
   // Send to all recipients
-  const sendPromises = allRecipients.map(recipient => 
+  const sendPromises = allRecipients.map(recipient =>
     sendWhatsAppMessage({
       message: messageContent,
       to: recipient
     })
   );
-  
+
   return Promise.all(sendPromises);
 };
 
 export const formatVerificationCode = (verificationCode: string): string => {
-  return `
-*Your Verification Code*
-Code: ${verificationCode}`.trim();
+ return `
+🔐 *Your Verification Code*
+
+Code: *${verificationCode}*
+
+⏰ This code will expire in 5 minutes.
+🔒 Keep this code private and secure.`.trim();
 };
 
 export const sendVerificationCode = async (verificationCode: string, phoneNumber: string): Promise<any> => {
@@ -192,10 +257,6 @@ Status: ${action === 'approved'
   
   // Default admin number
   const adminNumber = ''; //process.env.NEXT_PUBLIC_ADMIN_WHATSAPP_NUMBER || '';
-  
-  // Combine admin number with additional recipients
-  // const allRecipients = [...new Set([adminNumber, ...recipientNumbers])].filter(Boolean);
-
   const allRecipients = Array.from(new Set([adminNumber, ...recipientNumbers])).filter(Boolean);
   
   // Send to all recipients

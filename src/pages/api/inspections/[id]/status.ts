@@ -2,52 +2,42 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { updateInspectionStatus } from '@/lib/inspectionService';
 
-const VALID_STATUSES = ['qc_approved', 'pm_approved', 'rejected'] as const;
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { id } = req.query;
+
   if (req.method !== 'PATCH') {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
   try {
-    const { id } = req.query;
-    const { status, approverId, comment } = req.body;
-
-    // Validate ID parameter
     if (!id || isNaN(Number(id))) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Invalid inspection ID' 
-      });
+      return res.status(400).json({ message: 'Invalid inspection ID' });
     }
+
+    const { status, approverId, comment } = req.body;
 
     // Validate required fields
     if (!status || !approverId) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Status and approverId are required' 
-      });
+      return res.status(400).json({ message: 'Missing required fields: status and approverId' });
     }
 
-    // Validate status value
-    if (!VALID_STATUSES.includes(status)) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Invalid status. Must be one of: qc_approved, pm_approved, rejected' 
-      });
+    // Validate status values
+    const validStatuses = ['qc_approved', 'pm_approved', 'rejected'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ message: 'Invalid status value' });
     }
 
-    const result = await updateInspectionStatus(
+    const updatedInspection = await updateInspectionStatus(
       Number(id),
       status,
       Number(approverId),
       comment
     );
-    
+
     res.status(200).json({
       success: true,
-      data: result,
-      message: `Inspection status updated to ${status}`
+      data: updatedInspection,
+      message: 'Inspection status updated successfully'
     });
   } catch (error) {
     console.error('Error updating inspection status:', error);
