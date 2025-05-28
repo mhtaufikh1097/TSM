@@ -12,7 +12,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   
   // Validate the token
-  const approvalDetails = validateApprovalToken(token);
+  const approvalDetails = await validateApprovalToken(token);
   
   if (!approvalDetails) {
     return res.status(404).json({ error: 'Token not found or expired' });

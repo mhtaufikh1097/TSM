@@ -4,31 +4,22 @@ import {
   Drawer, 
   AppBar, 
   Toolbar, 
-  List, 
   Typography, 
-  Divider, 
-  IconButton, 
-  ListItem,
-  ListItemIcon, 
-  ListItemText,
+  IconButton,
   Avatar,
   Menu,
   MenuItem,
-  ListItemButton
+  ListItemIcon,
+  ListItemText
 } from '@mui/material';
 import { 
-  Dashboard as DashboardIcon,
-  Assignment as AssignmentIcon,
-  History as HistoryIcon,
-  Settings as SettingsIcon,
   Menu as MenuIcon,
   Person as PersonIcon,
-  ExitToApp as LogoutIcon,
-  CheckCircle as QcIcon,
-  Business as ProjectIcon
+  ExitToApp as LogoutIcon
 } from '@mui/icons-material';
 import { useAuth } from '@/lib/auth-context';
 import { useRouter } from 'next/router';
+import Sidebar from './Sidebar';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -61,97 +52,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, activeTab, setActiveTab
     logout();
     router.push('/');
   };
-
-  const drawer = (
-    <div>
-      <Toolbar>
-        <Typography variant="h6" noWrap>
-          Inspection App
-        </Typography>
-      </Toolbar>
-      <Divider />
-      <List>
-        <ListItem>
-          <ListItemButton 
-            selected={activeTab === 'dashboard'} 
-            onClick={() => setActiveTab('dashboard')}
-          >
-            <ListItemIcon>
-              <DashboardIcon />
-            </ListItemIcon>
-            <ListItemText primary="Dashboard" />
-          </ListItemButton>
-        </ListItem>
-        
-        {/* Inspector specific menu items */}
-        {isInspector && (
-           <ListItem>
-            <ListItemButton  
-              selected={activeTab === 'inspections'} 
-              onClick={() => setActiveTab('inspections')}
-            >
-              <ListItemIcon>
-                <AssignmentIcon />
-              </ListItemIcon>
-              <ListItemText primary="New Inspection" />
-            </ListItemButton>
-          </ListItem>
-        )}
-        
-        {/* QC specific menu items */}
-        {isQc && (
-          <ListItem>
-          <ListItemButton  
-            selected={activeTab === 'reviews'} 
-            onClick={() => setActiveTab('reviews')}
-          >
-            <ListItemIcon>
-              <QcIcon />
-            </ListItemIcon>
-            <ListItemText primary="Review Queue" />
-          </ListItemButton>
-          </ListItem>
-        )}
-        
-        {/* PM specific menu items */}
-        {isPm && (
-          <ListItem>
-          <ListItemButton  
-            selected={activeTab === 'projects'} 
-            onClick={() => setActiveTab('projects')}
-          >
-            <ListItemIcon>
-              <ProjectIcon />
-            </ListItemIcon>
-            <ListItemText primary="Projects" />
-          </ListItemButton>
-          </ListItem>
-        )}
-        <ListItem>
-        <ListItemButton  
-          selected={activeTab === 'history'} 
-          onClick={() => setActiveTab('history')}
-        >
-          <ListItemIcon>
-            <HistoryIcon />
-          </ListItemIcon>
-          <ListItemText primary="History" />
-        </ListItemButton>
-        </ListItem>
-        <ListItem>
-        <ListItemButton 
-          selected={activeTab === 'settings'} 
-          onClick={() => setActiveTab('settings')}
-        >
-          <ListItemIcon>
-            <SettingsIcon />
-          </ListItemIcon>
-          <ListItemText primary="Settings" />
-        </ListItemButton>
-        </ListItem>
-      </List>
-    </div>
-  );
 
   return (
     <Box sx={{ display: 'flex' }}>
@@ -236,7 +136,15 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, activeTab, setActiveTab
             '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
           }}
         >
-          {drawer}
+          <Sidebar
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            isMobile={true}
+            setMobileOpen={setMobileOpen}
+            isInspector={isInspector}
+            isQc={isQc}
+            isPm={isPm}
+          />
         </Drawer>
         <Drawer
           variant="permanent"
@@ -246,7 +154,14 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, activeTab, setActiveTab
           }}
           open
         >
-          {drawer}
+          <Sidebar
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            isMobile={false}
+            isInspector={isInspector}
+            isQc={isQc}
+            isPm={isPm}
+          />
         </Drawer>
       </Box>
       <Box

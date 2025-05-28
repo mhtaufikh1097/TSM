@@ -1,8 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
-import { useAuth } from '@/lib/auth-context';
-import AppLayout from '@/components/layout/AppLayout';
-import InspectionDetailView from '@/components/dashboard/InspectionDetailView';
 import {
   Box,
   Typography,
@@ -23,7 +19,7 @@ import {
   ListItemIcon,
   ListItemText,
   Stack,
-  Container
+  IconButton
 } from '@mui/material';
 import {
   CheckCircle as ApproveIcon,
@@ -35,11 +31,11 @@ import {
   Warning as SeverityIcon,
   AttachFile as AttachIcon,
   Image as ImageIcon,
-  PictureAsPdf as PdfIcon
+  PictureAsPdf as PdfIcon,
+  ArrowBack as BackIcon
 } from '@mui/icons-material';
 import { getInspectionById, updateInspectionStatus } from '@/services/clientInspectionService';
-import { validateApprovalToken } from '@/services/whatsappService';
-import { sendApprovalNotification } from '@/services/whatsappService';
+import { useAuth } from '@/lib/auth-context';
 
 interface InspectionData {
   id: number;
@@ -71,20 +67,26 @@ interface InspectionData {
   };
 }
 
-const InspectionDetailPage: React.FC = () => {
-  const router = useRouter();
-  const { id, token, role } = router.query;
-  const { isAuthenticated, user } = useAuth();
-  
+interface InspectionDetailViewProps {
+  inspectionId: number;
+  onBack: () => void;
+  token?: string;
+  externalRole?: 'qc' | 'pm';
+}
+
+const InspectionDetailView: React.FC<InspectionDetailViewProps> = ({ 
+  inspectionId, 
+  onBack, 
+  token, 
+  externalRole 
+}) => {
+  const { user, isQc, isPm } = useAuth();
   const [inspection, setInspection] = useState<InspectionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [actionType, setActionType] = useState<'approve' | 'reject'>('approve');
   const [comment, setComment] = useState('');
-  const [userRole, setUserRole] = useState<'qc' | 'pm' | null>(null);
-  const [isValidToken, setIsValidToken] = useState(false);
-  const [activeTab, setActiveTab] = useState('all-inspections');
   
   const [snackbar, setSnackbar] = useState({
     open: false,
@@ -92,37 +94,23 @@ const InspectionDetailPage: React.FC = () => {
     severity: 'success' as 'success' | 'error'
   });
 
+  // Determine user role - either from auth context or external token
+  const userRole = externalRole || (isQc ? 'qc' : isPm ? 'pm' : null);
+  const canApprove = userRole && inspection && (
+    (userRole === 'qc' && inspection.status === 'pending') ||
+    (userRole === 'pm' && inspection.status === 'qc_approved')
+  );
+
   useEffect(() => {
-    if (id && token && role) {
+    if (inspectionId) {
       loadInspectionData();
-      validateToken();
     }
-  }, [id, token, role]);
-
-  const validateToken = async () => {
-    if (typeof token === 'string') {
-      const tokenData = await validateApprovalToken(token);
-
-      console.log('Token Data:', tokenData);
-      console.log('number id :', Number(id));
-      
-      if (tokenData && tokenData.inspectionId === Number(id)) {
-        setIsValidToken(true);
-        setUserRole(tokenData.role);
-      } else {
-        setSnackbar({
-          open: true,
-          message: 'Invalid or expired access token',
-          severity: 'error'
-        });
-      }
-    }
-  };
+  }, [inspectionId]);
 
   const loadInspectionData = async () => {
     try {
       setLoading(true);
-      const data = await getInspectionById(Number(id));
+      const data = await getInspectionById(inspectionId);
       setInspection(data);
     } catch (error) {
       console.error('Error loading inspection:', error);
@@ -142,7 +130,7 @@ const InspectionDetailPage: React.FC = () => {
   };
 
   const handleSubmitAction = async () => {
-    if (!inspection || !userRole) return;
+    if (!inspection || (!user && !token)) return;
     
     try {
       setActionLoading(true);
@@ -151,25 +139,14 @@ const InspectionDetailPage: React.FC = () => {
         ? (userRole === 'qc' ? 'qc_approved' : 'pm_approved')
         : 'rejected';
       
-      // For this example, we'll use a dummy approver ID
-      // In a real app, you'd get this from authentication
-      const approverId = 1;
+      // Use user ID if authenticated, or dummy ID for external users
+      const approverId = user?.id || 1;
       
       await updateInspectionStatus(inspection.id, status, approverId, comment);
       
-      // Send notification
-      await sendApprovalNotification(
-        inspection.id,
-        actionType === 'approve' ? 'approved' : 'rejected',
-        comment,
-        `${userRole.toUpperCase()} User`, // In real app, get actual user name
-        userRole,
-        [inspection.inspector.phoneNumber] // Notify the inspector
-      );
-      
       setSnackbar({
         open: true,
-        message: `Inspection ${actionType}d successfully and notification sent!`,
+        message: `Inspection ${actionType}d successfully!`,
         severity: 'success'
       });
       
@@ -210,73 +187,48 @@ const InspectionDetailPage: React.FC = () => {
     }
   };
 
-  const canTakeAction = () => {
-    if (!inspection || !userRole || !isValidToken) return false;
-    
-    if (userRole === 'qc' && inspection.status === 'pending') return true;
-    if (userRole === 'pm' && inspection.status === 'qc_approved') return true;
-    
-    return false;
-  };
-
   const getFileIcon = (fileType: string) => {
     if (fileType === 'image') return <ImageIcon />;
     if (fileType === 'pdf') return <PdfIcon />;
     return <AttachIcon />;
   };
 
-  // Check if user is authenticated - use dashboard layout
-  if (isAuthenticated && user) {
-    return (
-      <AppLayout activeTab={activeTab} setActiveTab={setActiveTab}>
-        <InspectionDetailView 
-          inspectionId={Number(id)} 
-          onBack={() => router.push('/dashboard')} 
-        />
-      </AppLayout>
-    );
-  }
-
-  // For external users with token - use standalone layout
   if (loading) {
     return (
-      <Container maxWidth="lg" sx={{ py: 4, textAlign: 'center' }}>
+      <Box sx={{ padding: 3, textAlign: 'center' }}>
         <CircularProgress />
         <Typography variant="h6" sx={{ mt: 2 }}>
           Loading inspection details...
         </Typography>
-      </Container>
+      </Box>
     );
   }
 
   if (!inspection) {
     return (
-      <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Box sx={{ padding: 3 }}>
         <Alert severity="error">
-          Inspection not found or access denied.
+          Inspection not found.
         </Alert>
-      </Container>
-    );
-  }
-
-  if (!isValidToken) {
-    return (
-      <Container maxWidth="lg" sx={{ py: 4 }}>
-        <Alert severity="error">
-          Invalid or expired access token. Please use the link from WhatsApp message.
-        </Alert>
-      </Container>
+      </Box>
     );
   }
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      {/* Header */}
+    <Box sx={{ padding: 3 }}>
+      {/* Header with Back Button */}
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+        <IconButton onClick={onBack} sx={{ mr: 2 }}>
+          <BackIcon />
+        </IconButton>
+        <Typography variant="h4" component="h1">
+          Inspection Report #{inspection.id}
+        </Typography>
+      </Box>
+
+      {/* Status and Action Buttons */}
       <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-          <Typography variant="h4" component="h1">
-            Inspection Report #{inspection.id}
-          </Typography>
           <Stack direction="row" spacing={1}>
             <Chip 
               label={inspection.severity.toUpperCase()} 
@@ -291,7 +243,7 @@ const InspectionDetailPage: React.FC = () => {
         </Box>
         
         {/* Action Buttons */}
-        {canTakeAction() && (
+        {canApprove && (
           <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
             <Button
               variant="contained"
@@ -479,8 +431,8 @@ const InspectionDetailPage: React.FC = () => {
           {snackbar.message}
         </Alert>
       </Snackbar>
-    </Container>
+    </Box>
   );
 };
 
-export default InspectionDetailPage;
+export default InspectionDetailView;

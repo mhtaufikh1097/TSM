@@ -5,6 +5,8 @@ import DashboardHome from './dashboard/DashboardHome';
 import InspectionForm from './dashboard/InspectionForm';
 import HistoryView from './dashboard/HistoryView';
 import SettingsView from './dashboard/SettingsView';
+import AllInspectionsView from './dashboard/AllInspectionsView';
+import InspectionDetailView from './dashboard/InspectionDetailView';
 import { useAuth } from '../lib/auth-context';
 import QcDashboard from './dashboard/QcDashboard';
 import PmDashboard from './dashboard/PmDashboard';
@@ -12,6 +14,7 @@ import { useRouter } from 'next/router';
 
 const Dashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [selectedInspectionId, setSelectedInspectionId] = useState<number | null>(null);
   const {isAuthenticated, loading, isQc, isPm } = useAuth();
   const router = useRouter();
 
@@ -24,11 +27,23 @@ const Dashboard: React.FC = () => {
 
   // Render the appropriate component based on the active tab
   const renderContent = () => {
+    // Handle inspection detail view
+    if (selectedInspectionId) {
+      return (
+        <InspectionDetailView 
+          inspectionId={selectedInspectionId} 
+          onBack={() => setSelectedInspectionId(null)} 
+        />
+      );
+    }
+
     switch (activeTab) {
       case 'dashboard':
         return <DashboardHome />;
       case 'inspections':
          return <InspectionForm />;
+      case 'all-inspections':
+        return <AllInspectionsView onViewInspection={setSelectedInspectionId} />;
       case 'history':
         return <HistoryView />;
       case 'settings':
@@ -37,7 +52,7 @@ const Dashboard: React.FC = () => {
 
     if(isQc) {
         switch (activeTab) {
-          case 'review':
+          case 'reviews':
           
           return <QcDashboard />; 
       }
