@@ -469,10 +469,10 @@ const InspectionDetailView: React.FC<InspectionDetailViewProps> = ({
                       <CardMedia
                         component="img"
                         height="200"
-                        image={`/uploads/${file.fileName}`}
+                        image={file.filePath.startsWith('/') ? file.filePath : `/uploads/${file.filePath}`}
                         alt={file.fileName}
                         sx={{ cursor: 'pointer', objectFit: 'cover' }}
-                        onClick={() => handleImageClick(`/uploads/${file.fileName}`)}
+                        onClick={() => handleImageClick(file.filePath.startsWith('/') ? file.filePath : `/uploads/${file.filePath}`)}
                       />
                       <CardActions sx={{ justifyContent: 'space-between', px: 2, py: 1 }}>
                         <Typography variant="caption" noWrap sx={{ flex: 1 }}>
@@ -481,7 +481,7 @@ const InspectionDetailView: React.FC<InspectionDetailViewProps> = ({
                         <Tooltip title="View full size">
                           <IconButton 
                             size="small" 
-                            onClick={() => handleImageClick(`/uploads/${file.fileName}`)}
+                            onClick={() => handleImageClick(file.filePath.startsWith('/') ? file.filePath : `/uploads/${file.filePath}`)}
                           >
                             <ZoomIcon />
                           </IconButton>
@@ -596,7 +596,7 @@ const InspectionDetailView: React.FC<InspectionDetailViewProps> = ({
                       <IconButton 
                         size="small" 
                         component="a"
-                        href={`/uploads/${file.fileName}`}
+                        href={file.filePath.startsWith('/') ? file.filePath : `/uploads/${file.filePath}`}
                         download={file.fileName}
                       >
                         <DownloadIcon />
