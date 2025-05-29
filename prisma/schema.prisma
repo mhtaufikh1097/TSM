@@ -26,7 +26,7 @@ model User {
   inspections Inspection[] @relation("Inspector")
   qcApproved  Inspection[] @relation("QcApprover")
   pmApproved  Inspection[] @relation("PmApprover")
-  rejected    Inspection[] @relation("Rejecter")
+  onHold      Inspection[] @relation("OnHoldBy")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 }
@@ -57,10 +57,10 @@ model Inspection {
   pmApprovedById Int?      @map("pm_approved_by")
   pmApprovedAt   DateTime? @map("pm_approved_at")
   pmComment      String?   @map("pm_comment")
-  rejectedBy     User?     @relation("Rejecter", fields: [rejectedById], references: [id])
-  rejectedById   Int?      @map("rejected_by")
-  rejectedAt     DateTime? @map("rejected_at")
-  rejectionReason String?  @map("rejection_reason")
+  onHoldBy       User?     @relation("OnHoldBy", fields: [onHoldById], references: [id])
+  onHoldById     Int?      @map("on_hold_by")
+  onHoldAt       DateTime? @map("on_hold_at")
+  onHoldReason   String?   @map("on_hold_reason")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
   approvalTokens ApprovalToken[]
@@ -105,9 +105,9 @@ enum Severity {
 
 enum Status {
   pending
+  on_hold
   qc_approved
   pm_approved
-  rejected
 }
 
 enum FileType {

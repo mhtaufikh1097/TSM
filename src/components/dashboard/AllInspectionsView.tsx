@@ -55,6 +55,12 @@ interface InspectionSummary {
     id: number;
     fullName: string;
   };
+  onHoldBy?: {
+    id: number;
+    fullName: string;
+  };
+  onHoldAt?: string;
+  onHoldReason?: string;
 }
 
 interface AllInspectionsViewProps {
@@ -193,7 +199,7 @@ const AllInspectionsView: React.FC<AllInspectionsViewProps> = ({ onViewInspectio
       case 'pending': return 'warning';
       case 'qc_approved': return 'info';
       case 'pm_approved': return 'success';
-      case 'rejected': return 'error';
+      case 'on_hold': return 'secondary';
       default: return 'default';
     }
   };
@@ -203,7 +209,17 @@ const AllInspectionsView: React.FC<AllInspectionsViewProps> = ({ onViewInspectio
       case 'pending': return 'Pending';
       case 'qc_approved': return 'QC Approved';
       case 'pm_approved': return 'PM Approved';
-      case 'rejected': return 'Rejected';
+      case 'on_hold': return 'On Hold';
+      default: return status;
+    }
+  };
+
+  const getStatusDisplayText = (status: string) => {
+    switch (status) {
+      case 'pending': return 'Pending';
+      case 'qc_approved': return 'QC Approved';
+      case 'pm_approved': return 'PM Approved';
+      case 'on_hold': return 'On Hold';
       default: return status;
     }
   };
@@ -350,7 +366,7 @@ const AllInspectionsView: React.FC<AllInspectionsViewProps> = ({ onViewInspectio
               <MenuItem value="pending">Pending</MenuItem>
               <MenuItem value="qc_approved">QC Approved</MenuItem>
               <MenuItem value="pm_approved">PM Approved</MenuItem>
-              <MenuItem value="rejected">Rejected</MenuItem>
+              <MenuItem value="on_hold">On Hold</MenuItem>
             </Select>
           </FormControl>
           

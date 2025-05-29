@@ -126,7 +126,7 @@ export default async function handler(req: AuthenticatedRequest, res: NextApiRes
               fullName: true
             }
           },
-          rejectedBy: {
+          onHoldBy: {
             select: {
               id: true,
               fullName: true

@@ -1,6 +1,8 @@
 /**
  * Enhanced service for handling WhatsApp messages including approval links
  */
+import { mockWhatsAppService, USE_MOCK_WHATSAPP } from './mockWhatsAppService';
+
 interface WhatsAppMessageParams {
   message: string;
   to: string;
@@ -28,6 +30,12 @@ const approvalTokens = new Map<string, ApprovalLink>();
  * @returns {Promise<any>} - Response from the WhatsApp API
  */
 export const sendWhatsAppMessage = async (params: WhatsAppMessageParams): Promise<any> => {
+  // Use mock service if enabled
+  if (USE_MOCK_WHATSAPP) {
+    console.log('[WhatsApp] Using mock service for development');
+    return await mockWhatsAppService.sendMessage(params.to, params.message);
+  }
+
   const maxRetries = 3;
   let lastError: Error | null = null;
 
@@ -48,6 +56,39 @@ export const sendWhatsAppMessage = async (params: WhatsAppMessageParams): Promis
       const cleanPhoneNumber = params.to.replace(/[^\d]/g, '');
       if (cleanPhoneNumber.length < 10) {
         throw new Error(`Invalid phone number format: ${params.to}`);
+      }
+
+      // For server-side execution on localhost, call the API handler directly
+      if (typeof window === "undefined" && cleanPhoneNumber) {
+        const { getWhatsAppSocket } = await import('@/lib/whatsapp/connection');
+        
+        console.log('[WhatsApp] Using direct socket connection for localhost');
+        
+        try {
+          const sock = await getWhatsAppSocket();
+          
+          if (!sock || !sock.user) {
+            throw new Error('WhatsApp connection not established. Please scan QR code.');
+          }
+
+          const formattedNumber = cleanPhoneNumber.startsWith('+') ? cleanPhoneNumber.substring(1) : cleanPhoneNumber;
+          const jid = `${formattedNumber}@s.whatsapp.net`;
+
+          await sock.sendMessage(jid, { text: params.message });
+
+          console.log('[WhatsApp] Message sent successfully via direct connection:', {
+            to: params.to,
+            success: true,
+            attempt,
+            timestamp: new Date().toISOString()
+          });
+
+          return { success: true, message: 'Message sent via WhatsApp' };
+          
+        } catch (directError) {
+          console.error('[WhatsApp] Direct connection failed:', directError);
+          // Fall back to HTTP API call
+        }
       }
 
       const baseUrl = getBaseUrl();
@@ -158,7 +199,16 @@ export const sendWhatsAppMessage = async (params: WhatsAppMessageParams): Promis
     }
   }
 
-  // If all retries failed, throw the last error
+  // If all retries failed, try mock service as last resort in development
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[WhatsApp] All retries failed, falling back to mock service for development');
+    try {
+      return await mockWhatsAppService.sendMessage(params.to, params.message);
+    } catch (mockError) {
+      console.error('[WhatsApp] Even mock service failed:', mockError);
+    }
+  }
+
   console.error('[WhatsApp] All retry attempts failed');
   throw new Error(`Failed to send WhatsApp message after ${maxRetries} attempts: ${lastError?.message}`);
 };
@@ -171,9 +221,9 @@ const getBaseUrl = (): string => {
     return window.location.origin;
   }
   
+  // For server-side calls, default to localhost in development
   return process.env.NEXT_PUBLIC_BASE_URL || 
-         process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` :
-         'http://localhost:3000';
+         (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
 };
 
 /**
@@ -187,6 +237,13 @@ const delay = (ms: number): Promise<void> => {
  * Test WhatsApp connection
  */
 export const testWhatsAppConnection = async (): Promise<boolean> => {
+  // Use mock service if enabled
+  if (USE_MOCK_WHATSAPP) {
+    console.log('[WhatsApp] Testing mock service connection');
+    const status = await mockWhatsAppService.checkStatus();
+    return status.connected;
+  }
+
   try {
     const baseUrl = getBaseUrl();
     const response = await fetch(`${baseUrl}/api/whatsapp/status`, {// Assuming you have a status endpoint
@@ -384,9 +441,16 @@ export const sendInspectionReport = async (
     const adminNumber = process.env.NEXT_PUBLIC_ADMIN_WHATSAPP_NUMBER || '';
 
     // Combine admin number with additional recipients
-    const allRecipients = Array.from(new Set([adminNumber, ...recipientNumbers]))
-      .filter(Boolean)
-      .filter(num => num.trim().length > 0);
+    // const allRecipients = Array.from(new Set([adminNumber, ...recipientNumbers]))
+    //   .filter(Boolean)
+    //   .filter(num => num.trim().length > 0);
+
+      const allRecipients = Array.from(new Set(recipientNumbers))
+  .filter(Boolean)
+  .filter(num => num.trim().length > 0);
+
+
+  console.log(`[SendReport] Admin number: ${recipientNumbers}`);
 
     if (allRecipients.length === 0) {
       throw new Error('No valid recipients found for WhatsApp notification');

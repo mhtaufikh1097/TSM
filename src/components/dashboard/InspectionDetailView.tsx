@@ -19,11 +19,24 @@ import {
   ListItemIcon,
   ListItemText,
   Stack,
-  IconButton
+  IconButton,
+  Avatar,
+  Card,
+  CardMedia,
+  CardContent,
+  CardActions,
+  ImageList,
+  ImageListItem,
+  Skeleton,
+  Tooltip,
+  Stepper,
+  Step,
+  StepLabel
 } from '@mui/material';
 import {
   CheckCircle as ApproveIcon,
-  Cancel as RejectIcon,
+  Pause as HoldIcon,
+  PlayArrow as ResumeIcon,
   Person as PersonIcon,
   LocationOn as LocationIcon,
   CalendarToday as DateIcon,
@@ -32,7 +45,12 @@ import {
   AttachFile as AttachIcon,
   Image as ImageIcon,
   PictureAsPdf as PdfIcon,
-  ArrowBack as BackIcon
+  ArrowBack as BackIcon,
+  ZoomIn as ZoomIcon,
+  Download as DownloadIcon,
+  History as HistoryIcon,
+  Schedule as ScheduleIcon,
+  Cancel as RejectIcon
 } from '@mui/icons-material';
 import { getInspectionById, updateInspectionStatus } from '@/services/clientInspectionService';
 import { useAuth } from '@/lib/auth-context';
@@ -61,10 +79,18 @@ interface InspectionData {
     id: number;
     fullName: string;
   };
+  qcApprovedAt?: string;
   pmApprovedBy?: {
     id: number;
     fullName: string;
   };
+  pmApprovedAt?: string;
+  onHoldBy?: {
+    id: number;
+    fullName: string;
+  };
+  onHoldAt?: string;
+  onHoldReason?: string;
 }
 
 interface InspectionDetailViewProps {
@@ -85,8 +111,10 @@ const InspectionDetailView: React.FC<InspectionDetailViewProps> = ({
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [actionType, setActionType] = useState<'approve' | 'reject'>('approve');
+  const [actionType, setActionType] = useState<'approve' | 'hold' | 'resume'>('approve');
   const [comment, setComment] = useState('');
+  const [imageDialogOpen, setImageDialogOpen] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string>('');
   
   const [snackbar, setSnackbar] = useState({
     open: false,
@@ -96,10 +124,15 @@ const InspectionDetailView: React.FC<InspectionDetailViewProps> = ({
 
   // Determine user role - either from auth context or external token
   const userRole = externalRole || (isQc ? 'qc' : isPm ? 'pm' : null);
+  
+  // Updated can approve logic for new workflow
   const canApprove = userRole && inspection && (
-    (userRole === 'qc' && inspection.status === 'pending') ||
+    (userRole === 'qc' && (inspection.status === 'pending' || inspection.status === 'on_hold')) ||
     (userRole === 'pm' && inspection.status === 'qc_approved')
   );
+  
+  const canHold = userRole === 'qc' && inspection && inspection.status === 'pending';
+  const canResume = userRole === 'qc' && inspection && inspection.status === 'on_hold';
 
   useEffect(() => {
     if (inspectionId) {
@@ -124,7 +157,7 @@ const InspectionDetailView: React.FC<InspectionDetailViewProps> = ({
     }
   };
 
-  const handleAction = (action: 'approve' | 'reject') => {
+  const handleAction = (action: 'approve' | 'hold' | 'resume') => {
     setActionType(action);
     setDialogOpen(true);
   };
@@ -135,18 +168,37 @@ const InspectionDetailView: React.FC<InspectionDetailViewProps> = ({
     try {
       setActionLoading(true);
       
-      const status = actionType === 'approve' 
-        ? (userRole === 'qc' ? 'qc_approved' : 'pm_approved')
-        : 'rejected';
-      
       // Use user ID if authenticated, or dummy ID for external users
-      const approverId = user?.id || 1;
+      const userId = user?.id || 1;
       
-      await updateInspectionStatus(inspection.id, status, approverId, comment);
+      // Get JWT token from localStorage or use external token
+      const authToken = token || localStorage.getItem('token');
+      
+      if (!authToken) {
+        throw new Error('No authentication token available');
+      }
+      
+      // Call the updated API with the new workflow
+      const response = await fetch(`/api/inspections/${inspection.id}/update-status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          action: actionType,
+          userId: userId,
+          comment: comment || undefined
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update status');
+      }
       
       setSnackbar({
         open: true,
-        message: `Inspection ${actionType}d successfully!`,
+        message: `Inspection ${actionType}${actionType === 'approve' ? 'd' : actionType === 'hold' ? ' put on hold' : 'd'} successfully!`,
         severity: 'success'
       });
       
@@ -182,7 +234,7 @@ const InspectionDetailView: React.FC<InspectionDetailViewProps> = ({
       case 'pending': return 'warning';
       case 'qc_approved': return 'info';
       case 'pm_approved': return 'success';
-      case 'rejected': return 'error';
+      case 'on_hold': return 'secondary';
       default: return 'default';
     }
   };
@@ -191,6 +243,28 @@ const InspectionDetailView: React.FC<InspectionDetailViewProps> = ({
     if (fileType === 'image') return <ImageIcon />;
     if (fileType === 'pdf') return <PdfIcon />;
     return <AttachIcon />;
+  };
+
+  const handleImageClick = (filePath: string) => {
+    setSelectedImage(filePath);
+    setImageDialogOpen(true);
+  };
+
+  const getWorkflowSteps = () => {
+    const steps = [
+      { label: 'Created', completed: true },
+      { label: 'QC Review', completed: inspection?.qcApprovedBy !== undefined },
+      { label: 'PM Approval', completed: inspection?.pmApprovedBy !== undefined }
+    ];
+    return steps;
+  };
+
+  const getActiveStep = () => {
+    if (!inspection) return 0;
+    if (inspection.status === 'pending' || inspection.status === 'on_hold') return 1;
+    if (inspection.status === 'qc_approved') return 2;
+    if (inspection.status === 'pm_approved') return 3;
+    return 0;
   };
 
   if (loading) {
@@ -243,27 +317,68 @@ const InspectionDetailView: React.FC<InspectionDetailViewProps> = ({
         </Box>
         
         {/* Action Buttons */}
-        {canApprove && (
+        {(canApprove || canHold || canResume) && (
           <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
-            <Button
-              variant="contained"
-              color="success"
-              startIcon={<ApproveIcon />}
-              onClick={() => handleAction('approve')}
-              disabled={actionLoading}
-            >
-              Approve
-            </Button>
-            <Button
-              variant="contained"
-              color="error"
-              startIcon={<RejectIcon />}
-              onClick={() => handleAction('reject')}
-              disabled={actionLoading}
-            >
-              Reject
-            </Button>
+            {canApprove && (
+              <Button
+                variant="contained"
+                color="success"
+                startIcon={<ApproveIcon />}
+                onClick={() => handleAction('approve')}
+                disabled={actionLoading}
+              >
+                Approve
+              </Button>
+            )}
+            {canHold && (
+              <Button
+                variant="contained"
+                color="warning"
+                startIcon={<HoldIcon />}
+                onClick={() => handleAction('hold')}
+                disabled={actionLoading}
+              >
+                Put on Hold
+              </Button>
+            )}
+            {canResume && (
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<ResumeIcon />}
+                onClick={() => handleAction('resume')}
+                disabled={actionLoading}
+              >
+                Resume
+              </Button>
+            )}
           </Stack>
+        )}
+      </Paper>
+
+      {/* Workflow Progress */}
+      <Paper elevation={1} sx={{ p: 3, mb: 3 }}>
+        <Typography variant="h6" sx={{ mb: 3 }}>
+          Approval Workflow
+        </Typography>
+        <Stepper activeStep={getActiveStep()} alternativeLabel>
+          {getWorkflowSteps().map((step, index) => (
+            <Step key={step.label} completed={step.completed}>
+              <StepLabel>{step.label}</StepLabel>
+            </Step>
+          ))}
+        </Stepper>
+        
+        {/* Hold status indicator */}
+        {inspection?.status === 'on_hold' && inspection.onHoldBy && (
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            <Typography variant="body2">
+              <strong>On Hold:</strong> Put on hold by {inspection.onHoldBy.fullName} on {new Date(inspection.onHoldAt!).toLocaleString()}
+              {inspection.onHoldReason && (
+                <><br /><strong>Reason:</strong> {inspection.onHoldReason}</>
+              )}
+            </Typography>
+          </Alert>
         )}
       </Paper>
 
@@ -271,39 +386,52 @@ const InspectionDetailView: React.FC<InspectionDetailViewProps> = ({
         {/* Main Details */}
         <Grid size={{ xs: 12, md: 8 }}>
           <Paper elevation={1} sx={{ p: 3, mb: 3 }}>
-            <Typography variant="h6" sx={{ mb: 2 }}>
+            <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <TypeIcon color="primary" />
               Inspection Details
             </Typography>
             
-            <Stack spacing={2}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <TypeIcon color="primary" />
-                <Typography variant="body1">
-                  <strong>Type:</strong> {inspection.inspectionType}
-                </Typography>
-              </Box>
+            <Grid container spacing={3}>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                  <TypeIcon color="action" />
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Type</Typography>
+                    <Typography variant="body1">{inspection.inspectionType}</Typography>
+                  </Box>
+                </Box>
+              </Grid>
               
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <LocationIcon color="primary" />
-                <Typography variant="body1">
-                  <strong>Location:</strong> {inspection.location}
-                </Typography>
-              </Box>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                  <LocationIcon color="action" />
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Location</Typography>
+                    <Typography variant="body1">{inspection.location}</Typography>
+                  </Box>
+                </Box>
+              </Grid>
               
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <PersonIcon color="primary" />
-                <Typography variant="body1">
-                  <strong>Inspector:</strong> {inspection.inspector.fullName}
-                </Typography>
-              </Box>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                  <PersonIcon color="action" />
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Inspector</Typography>
+                    <Typography variant="body1">{inspection.inspector.fullName}</Typography>
+                  </Box>
+                </Box>
+              </Grid>
               
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <DateIcon color="primary" />
-                <Typography variant="body1">
-                  <strong>Created:</strong> {new Date(inspection.createdAt).toLocaleString()}
-                </Typography>
-              </Box>
-            </Stack>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                  <DateIcon color="action" />
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Created</Typography>
+                    <Typography variant="body1">{new Date(inspection.createdAt).toLocaleString()}</Typography>
+                  </Box>
+                </Box>
+              </Grid>
+            </Grid>
           </Paper>
 
           {/* Findings */}
@@ -311,7 +439,7 @@ const InspectionDetailView: React.FC<InspectionDetailViewProps> = ({
             <Typography variant="h6" sx={{ mb: 2 }}>
               Findings
             </Typography>
-            <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+            <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
               {inspection.findings}
             </Typography>
           </Paper>
@@ -321,32 +449,103 @@ const InspectionDetailView: React.FC<InspectionDetailViewProps> = ({
             <Typography variant="h6" sx={{ mb: 2 }}>
               Actions Required
             </Typography>
-            <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+            <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
               {inspection.actionRequired}
             </Typography>
           </Paper>
+
+          {/* Evidence Images */}
+          {inspection.files && inspection.files.filter(f => f.fileType === 'image').length > 0 && (
+            <Paper elevation={1} sx={{ p: 3, mb: 3 }}>
+              <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <ImageIcon color="primary" />
+                Evidence Images ({inspection.files.filter(f => f.fileType === 'image').length})
+              </Typography>
+              
+              <ImageList variant="masonry" cols={3} gap={8}>
+                {inspection.files.filter(f => f.fileType === 'image').map((file) => (
+                  <ImageListItem key={file.id}>
+                    <Card elevation={2}>
+                      <CardMedia
+                        component="img"
+                        height="200"
+                        image={`/uploads/${file.fileName}`}
+                        alt={file.fileName}
+                        sx={{ cursor: 'pointer', objectFit: 'cover' }}
+                        onClick={() => handleImageClick(`/uploads/${file.fileName}`)}
+                      />
+                      <CardActions sx={{ justifyContent: 'space-between', px: 2, py: 1 }}>
+                        <Typography variant="caption" noWrap sx={{ flex: 1 }}>
+                          {file.fileName}
+                        </Typography>
+                        <Tooltip title="View full size">
+                          <IconButton 
+                            size="small" 
+                            onClick={() => handleImageClick(`/uploads/${file.fileName}`)}
+                          >
+                            <ZoomIcon />
+                          </IconButton>
+                        </Tooltip>
+                      </CardActions>
+                    </Card>
+                  </ImageListItem>
+                ))}
+              </ImageList>
+            </Paper>
+          )}
         </Grid>
 
         {/* Sidebar */}
         <Grid size={{xs:12, md:4}}>
           {/* Approval Status */}
           <Paper elevation={1} sx={{ p: 3, mb: 3 }}>
-            <Typography variant="h6" sx={{ mb: 2 }}>
-              Approval Status
+            <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <HistoryIcon color="primary" />
+              Approval History
             </Typography>
             
             <Stack spacing={2}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Typography variant="body2">QC Approval:</Typography>
+              <Box sx={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                p: 2,
+                backgroundColor: 'action.hover',
+                borderRadius: 1
+              }}>
+                <Box>
+                  <Typography variant="body2" fontWeight="medium">QC Review</Typography>
+                  {inspection.qcApprovedBy && inspection.qcApprovedAt && (
+                    <Typography variant="caption" color="text.secondary">
+                      by {inspection.qcApprovedBy.fullName}<br />
+                      {new Date(inspection.qcApprovedAt).toLocaleString()}
+                    </Typography>
+                  )}
+                </Box>
                 <Chip 
-                  label={inspection.qcApprovedBy ? 'Approved' : 'Pending'}
-                  color={inspection.qcApprovedBy ? 'success' : 'warning'}
+                  label={inspection.qcApprovedBy ? 'Approved' : inspection.status === 'on_hold' ? 'On Hold' : 'Pending'}
+                  color={inspection.qcApprovedBy ? 'success' : inspection.status === 'on_hold' ? 'secondary' : 'warning'}
                   size="small"
                 />
               </Box>
               
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Typography variant="body2">PM Approval:</Typography>
+              <Box sx={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                p: 2,
+                backgroundColor: 'action.hover',
+                borderRadius: 1
+              }}>
+                <Box>
+                  <Typography variant="body2" fontWeight="medium">PM Approval</Typography>
+                  {inspection.pmApprovedBy && inspection.pmApprovedAt && (
+                    <Typography variant="caption" color="text.secondary">
+                      by {inspection.pmApprovedBy.fullName}<br />
+                      {new Date(inspection.pmApprovedAt).toLocaleString()}
+                    </Typography>
+                  )}
+                </Box>
                 <Chip 
                   label={inspection.pmApprovedBy ? 'Approved' : 'Pending'}
                   color={inspection.pmApprovedBy ? 'success' : 'warning'}
@@ -356,23 +555,53 @@ const InspectionDetailView: React.FC<InspectionDetailViewProps> = ({
             </Stack>
           </Paper>
 
-          {/* Attachments */}
+          {/* All Attachments */}
           {inspection.files && inspection.files.length > 0 && (
             <Paper elevation={1} sx={{ p: 3 }}>
-              <Typography variant="h6" sx={{ mb: 2 }}>
-                Attachments ({inspection.files.length})
+              <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <AttachIcon color="primary" />
+                All Files ({inspection.files.length})
               </Typography>
               
               <List dense>
                 {inspection.files.map((file) => (
-                  <ListItem key={file.id} sx={{ px: 0 }}>
+                  <ListItem 
+                    key={file.id} 
+                    sx={{ 
+                      px: 0, 
+                      py: 1,
+                      '&:hover': { backgroundColor: 'action.hover' },
+                      borderRadius: 1
+                    }}
+                  >
                     <ListItemIcon>
                       {getFileIcon(file.fileType)}
                     </ListItemIcon>
                     <ListItemText 
-                      primary={file.fileName}
-                      secondary={file.fileType}
+                      primary={
+                        <Typography variant="body2" noWrap>
+                          {file.fileName}
+                        </Typography>
+                      }
+                      secondary={
+                        <Chip 
+                          label={file.fileType} 
+                          size="small" 
+                          variant="outlined"
+                          sx={{ height: 20, fontSize: '0.7rem' }}
+                        />
+                      }
                     />
+                    <Tooltip title="Download">
+                      <IconButton 
+                        size="small" 
+                        component="a"
+                        href={`/uploads/${file.fileName}`}
+                        download={file.fileName}
+                      >
+                        <DownloadIcon />
+                      </IconButton>
+                    </Tooltip>
                   </ListItem>
                 ))}
               </List>
@@ -381,14 +610,49 @@ const InspectionDetailView: React.FC<InspectionDetailViewProps> = ({
         </Grid>
       </Grid>
 
+      {/* Image Preview Dialog */}
+      <Dialog 
+        open={imageDialogOpen} 
+        onClose={() => setImageDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h6">Image Preview</Typography>
+            <IconButton onClick={() => setImageDialogOpen(false)}>
+              <BackIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {selectedImage && (
+            <Box sx={{ textAlign: 'center' }}>
+              <img 
+                src={selectedImage} 
+                alt="Evidence" 
+                style={{ 
+                  maxWidth: '100%', 
+                  maxHeight: '70vh', 
+                  objectFit: 'contain' 
+                }} 
+              />
+            </Box>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Action Dialog */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
-          {actionType === 'approve' ? 'Approve Inspection' : 'Reject Inspection'}
+          {actionType === 'approve' ? 'Approve Inspection' : 
+           actionType === 'hold' ? 'Put Inspection on Hold' : 'Resume Inspection'}
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2 }}>
-            Please provide a comment for this {actionType === 'approve' ? 'approval' : 'rejection'}:
+            {actionType === 'approve' ? 'Please provide a comment for this approval:' :
+             actionType === 'hold' ? 'Please provide a reason for putting this inspection on hold:' :
+             'Please provide a comment for resuming this inspection:'}
           </Typography>
           <TextField
             fullWidth
@@ -396,8 +660,12 @@ const InspectionDetailView: React.FC<InspectionDetailViewProps> = ({
             rows={3}
             value={comment}
             onChange={(e) => setComment(e.target.value)}
-            placeholder={actionType === 'approve' ? 'Optional approval comment...' : 'Reason for rejection...'}
-            required={actionType === 'reject'}
+            placeholder={
+              actionType === 'approve' ? 'Optional approval comment...' :
+              actionType === 'hold' ? 'Reason for hold...' :
+              'Optional resume comment...'
+            }
+            required={actionType === 'hold'}
           />
         </DialogContent>
         <DialogActions>
@@ -407,11 +675,15 @@ const InspectionDetailView: React.FC<InspectionDetailViewProps> = ({
           <Button
             onClick={handleSubmitAction}
             variant="contained"
-            color={actionType === 'approve' ? 'success' : 'error'}
-            disabled={actionLoading || (actionType === 'reject' && !comment.trim())}
+            color={
+              actionType === 'approve' ? 'success' :
+              actionType === 'hold' ? 'warning' : 'primary'
+            }
+            disabled={actionLoading || (actionType === 'hold' && !comment.trim())}
           >
             {actionLoading ? <CircularProgress size={20} /> : 
-             actionType === 'approve' ? 'Approve' : 'Reject'}
+             actionType === 'approve' ? 'Approve' :
+             actionType === 'hold' ? 'Put on Hold' : 'Resume'}
           </Button>
         </DialogActions>
       </Dialog>
