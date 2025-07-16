@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  phone     String?
+  role      Role     @default(REPORTER)
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reportedIncidents Incident[] @relation("ReportedBy")
+  qcIncidents      Incident[] @relation("QCBy")
+  pmIncidents      Incident[] @relation("PMBy")
+
+  @@map("users")
+}
+
+model Incident {
+  id          String   @id @default(cuid())
+  title       String
+  description String   @db.Text
+  location    String
+  occurredAt  DateTime
+  status      Status   @default(PENDING_QC)
+  priority    Priority @default(MEDIUM)
+  
+  reporterId  String
+  reporter    User     @relation("ReportedBy", fields: [reporterId], references: [id])
+  
+  qcId        String?
+  qc          User?    @relation("QCBy", fields: [qcId], references: [id])
+  qcAt        DateTime?
+  qcComment   String?
+  
+  pmId        String?
+  pm          User?    @relation("PMBy", fields: [pmId], references: [id])
+  pmAt        DateTime?
+  pmComment   String?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  attachments IncidentAttachment[]
+  logs        IncidentLog[]
+
+  @@map("incidents")
+}
+
+model IncidentAttachment {
+  id         String   @id @default(cuid())
+  filename   String
+  originalName String
+  mimeType   String
+  size       Int
+  path       String
+  
+  incidentId String
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  
+  createdAt  DateTime @default(now())
+
+  @@map("incident_attachments")
+}
+
+model IncidentLog {
+  id         String   @id @default(cuid())
+  action     String
+  oldStatus  Status?
+  newStatus  Status?
+  comment    String?
+  userId     String
+  incidentId String
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@map("incident_logs")
+}
+
+enum Role {
+  ADMIN
+  REPORTER
+  QC
+  PM
+}
+
+enum Status {
+  PENDING_QC
+  APPROVED_QC
+  REJECTED_QC
+  PENDING_PM
+  APPROVED_PM
+  REJECTED_PM
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
