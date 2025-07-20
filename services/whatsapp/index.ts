@@ -30,9 +30,10 @@ class WhatsAppService {
   private maxReconnectAttempts = 10
   private connectionState: string = 'close'
   private lastDisconnectTime = 0
-  private minReconnectDelay = 3000 // 3 seconds minimum delay
+  private minReconnectDelay = 10000 // Increased to 10 seconds minimum delay
   private reconnectTimer: NodeJS.Timeout | null = null
   private isReconnecting = false
+  private qrCodeExpiry = 45000 // QR code expiry time (45 seconds)
 
   constructor() {
     // Auto-initialize on service startup
@@ -80,14 +81,20 @@ class WhatsAppService {
       // Close existing socket if any
       if (this.socket) {
         try {
+          console.log('🔌 Closing existing socket...')
+          // Remove all event listeners first
+          this.socket.ev.removeAllListeners('connection.update')
+          this.socket.ev.removeAllListeners('creds.update')
+          this.socket.ev.removeAllListeners('messages.upsert')
+          
           // Check if socket exists and has a valid connection
-          if (this.socket.ws?.readyState === 1) { // Only end if connection is open
+          if (this.socket.ws && this.socket.ws.readyState === 1) { // Only end if connection is open
             await this.socket.end()
           } else if (this.socket.end) {
             // Force close even if state is unclear
             this.socket.end()
           }
-          await new Promise(resolve => setTimeout(resolve, 2000)) // Wait longer for cleanup
+          await new Promise(resolve => setTimeout(resolve, 3000)) // Wait longer for cleanup
         } catch (error) {
           console.log('Error closing existing socket:', error)
         }
@@ -105,16 +112,17 @@ class WhatsAppService {
       this.socket = makeWASocket({
         auth: state,
         printQRInTerminal: false,
-        generateHighQualityLinkPreview: true,
-        markOnlineOnConnect: true,
-        browser: ['TSM WhatsApp Bot', 'Chrome', '22.04.4'],
-        defaultQueryTimeoutMs: 60000,
-        connectTimeoutMs: 60000,
-        qrTimeout: 60000,
-        retryRequestDelayMs: 250,
-        maxMsgRetryCount: 3,
+        generateHighQualityLinkPreview: false, // Disable to reduce load
+        markOnlineOnConnect: false, // Don't mark online immediately
+        browser: ['TSM Bot', 'Desktop', '1.0.0'], // Simplified browser info
+        defaultQueryTimeoutMs: 30000, // Reduced timeout
+        connectTimeoutMs: 30000, // Reduced timeout
+        qrTimeout: 45000, // Reduced QR timeout but still reasonable
+        retryRequestDelayMs: 1000, // Increased retry delay
+        maxMsgRetryCount: 2, // Reduced retry count
         shouldSyncHistoryMessage: () => false,
         emitOwnEvents: false,
+        syncFullHistory: false, // Disable history sync
         getMessage: async (key) => {
           return { conversation: 'Hello' }
         }
@@ -156,6 +164,16 @@ class WhatsAppService {
           this.qrCodeBase64 = await QRCode.toDataURL(update.qr)
           console.log('✅ QR Code generated successfully')
           await this.updateSessionStatus(false, this.qrCodeBase64, undefined)
+          
+          // Set a timer to handle QR code expiry
+          setTimeout(() => {
+            if (!this.isConnected && this.qrCode === update.qr) {
+              console.log('⏰ QR Code expired, will wait for new one or connection')
+              this.qrCode = null
+              this.qrCodeBase64 = null
+            }
+          }, this.qrCodeExpiry)
+          
         } catch (qrError) {
           console.error('❌ Failed to generate QR code:', qrError)
           await this.updateSessionStatus(false, undefined, 'Failed to generate QR code')
@@ -192,10 +210,27 @@ class WhatsAppService {
           this.lastDisconnectTime = Date.now()
           
           if (update.lastDisconnect?.error) {
-            console.error('❌ Connection error:', update.lastDisconnect.error)
-            const errorMessage = update.lastDisconnect.error.message || 'Connection error'
+            const boom = update.lastDisconnect.error as Boom
+            const statusCode = boom?.output?.statusCode
+            const errorMessage = boom?.message || 'Connection error'
+            
+            console.error('❌ Connection error:', errorMessage, 'Status:', statusCode)
             
             // Handle specific error cases
+            if (statusCode === DisconnectReason.loggedOut) {
+              console.log('⚠️ Logged out - clearing session')
+              await this.clearSession()
+              await this.updateSessionStatus(false, undefined, 'Logged out - session cleared')
+              return
+            }
+            
+            if (statusCode === DisconnectReason.multideviceMismatch) {
+              console.log('⚠️ Multi-device mismatch - clearing session')
+              await this.clearSession()
+              await this.updateSessionStatus(false, undefined, 'Multi-device mismatch - session cleared')
+              return
+            }
+            
             if (errorMessage.includes('conflict') || errorMessage.includes('replaced')) {
               console.log('⚠️ Session conflict detected - clearing session and stopping reconnect')
               await this.clearSession()
@@ -204,26 +239,30 @@ class WhatsAppService {
               return
             }
             
-            if (errorMessage.includes('Stream Errored')) {
-              console.log('⚠️ Stream error detected - will attempt reconnection after delay')
-              await this.updateSessionStatus(false, undefined, 'Stream error - reconnecting')
-              // Add longer delay for stream errors
-              await new Promise(resolve => setTimeout(resolve, 5000))
+            if (statusCode === DisconnectReason.connectionClosed || statusCode === DisconnectReason.connectionLost) {
+              console.log('⚠️ Connection lost - will attempt reconnection after delay')
+              await this.updateSessionStatus(false, undefined, 'Connection lost - reconnecting')
             }
             
-            // Auto reconnect if under the limit
-            if (this.reconnectAttempts < this.maxReconnectAttempts) {
+            // Auto reconnect if under the limit and not a permanent error
+            if (this.reconnectAttempts < this.maxReconnectAttempts && 
+                statusCode !== DisconnectReason.loggedOut && 
+                statusCode !== DisconnectReason.multideviceMismatch) {
               this.scheduleReconnect()
             } else {
-              console.log('❌ Max reconnection attempts reached. Manual intervention required.')
-              await this.updateSessionStatus(false, undefined, 'Max reconnection attempts reached')
+              console.log('❌ Max reconnection attempts reached or permanent error. Manual intervention required.')
+              await this.updateSessionStatus(false, undefined, 'Max reconnection attempts reached or permanent error')
             }
           } else {
-            // Normal disconnection - still try to reconnect
+            // Normal disconnection or QR code timeout - be more patient before reconnecting
             console.log('ℹ️ Normal disconnection detected')
             await this.updateSessionStatus(false, undefined, 'Connection closed normally')
-            if (this.reconnectAttempts < this.maxReconnectAttempts) {
+            
+            // Only reconnect if we've been disconnected for a while and QR code is not active
+            if (this.reconnectAttempts < this.maxReconnectAttempts && !this.qrCode) {
               this.scheduleReconnect()
+            } else if (this.qrCode) {
+              console.log('📱 QR Code still active, waiting for scan...')
             }
           }
           break
@@ -532,9 +571,11 @@ class WhatsAppService {
     }
 
     this.isReconnecting = true
-    const delay = Math.min(this.minReconnectDelay * Math.pow(2, this.reconnectAttempts), 30000)
+    // Exponential backoff with longer delays
+    const baseDelay = this.reconnectAttempts === 0 ? this.minReconnectDelay : this.minReconnectDelay * Math.pow(1.5, this.reconnectAttempts)
+    const delay = Math.min(baseDelay, 60000) // Cap at 60 seconds
     
-    console.log(`🔄 Scheduling reconnect in ${delay}ms... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
+    console.log(`🔄 Scheduling reconnect in ${delay}ms... (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`)
     
     this.reconnectTimer = setTimeout(async () => {
       this.isReconnecting = false
@@ -542,6 +583,7 @@ class WhatsAppService {
       
       if (this.reconnectAttempts < this.maxReconnectAttempts && !this.isConnected) {
         try {
+          console.log(`🔄 Attempting reconnection (${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`)
           await this.initialize()
         } catch (error) {
           console.error('Scheduled reconnect failed:', error)
@@ -715,19 +757,56 @@ class WhatsAppService {
     try {
       console.log('🔄 Restarting WhatsApp connection...')
       
+      // Stop any pending reconnections
+      if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer)
+        this.reconnectTimer = null
+      }
+      
+      this.isReconnecting = false
+      this.reconnectAttempts = 0
+      
       // Close current connection
       if (this.socket) {
-        this.socket.end()
+        try {
+          this.socket.ev.removeAllListeners()
+          this.socket.end()
+        } catch (error) {
+          console.log('Error closing socket during restart:', error)
+        }
         this.socket = null
       }
       
       // Wait a moment
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      await new Promise(resolve => setTimeout(resolve, 3000))
       
       // Reinitialize
       await this.initialize()
     } catch (error) {
       console.error('❌ Error restarting connection:', error)
+      throw error
+    }
+  }
+
+  // Enhanced method to completely reset and restart
+  async resetAndRestart() {
+    try {
+      console.log('🔄 Resetting and restarting WhatsApp connection...')
+      
+      // Clear session first
+      await this.clearSession()
+      
+      // Wait for cleanup
+      await new Promise(resolve => setTimeout(resolve, 5000))
+      
+      // Reset all states
+      this.reconnectAttempts = 0
+      this.isReconnecting = false
+      
+      // Restart
+      await this.initialize()
+    } catch (error) {
+      console.error('❌ Error resetting and restarting:', error)
       throw error
     }
   }

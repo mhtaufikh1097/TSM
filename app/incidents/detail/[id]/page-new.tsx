@@ -1,12 +1,13 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { useSession } from "next-auth/react"
 import DashboardLayout from "@/components/layouts/DashboardLayout"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import { 
   ArrowLeft,
@@ -15,15 +16,20 @@ import {
   User,
   Clock,
   Download,
+  Eye,
   MessageSquare,
   CheckCircle,
   XCircle,
   AlertTriangle,
   FileText,
   Image as ImageIcon,
+  ThumbsUp,
+  ThumbsDown,
+  Send,
   Pause
 } from "lucide-react"
 import { format } from "date-fns"
+import { cn } from "@/lib/utils"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
 interface Incident {
@@ -69,6 +75,7 @@ interface Incident {
 export default function IncidentDetailPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { data: session } = useSession()
   const [incident, setIncident] = useState<Incident | null>(null)
   const [loading, setLoading] = useState(true)
@@ -77,6 +84,8 @@ export default function IncidentDetailPage() {
   const [comment, setComment] = useState("")
   const [notification, setNotification] = useState<{type: 'success' | 'error', message: string} | null>(null)
 
+  const token = searchParams.get('token')
+  const role = searchParams.get('role')
   const incidentId = params.id as string
 
   const showNotification = (type: 'success' | 'error', message: string) => {
@@ -85,19 +94,31 @@ export default function IncidentDetailPage() {
   }
 
   useEffect(() => {
+    console.log('DEBUG useEffect:', { 
+      incidentId, 
+      session: session?.user ? {
+        id: session.user.id,
+        role: session.user.role,
+        email: session.user.email
+      } : 'No session'
+    })
+    
     if (incidentId) {
       fetchIncident()
+    } else {
+      setError("Missing incident ID")
+      setLoading(false)
     }
-  }, [incidentId])
+  }, [incidentId, session])
 
   const fetchIncident = async () => {
     try {
-      const response = await fetch(`/api/incidents/${incidentId}`)
+      const response = await fetch(`/api/incidents/${incidentId}?token=${token}&role=${role}`)
       if (response.ok) {
         const data = await response.json()
-        setIncident(data.incident || data)
+        setIncident(data.incident || data) // Handle both response formats
       } else {
-        setError("Incident not found or access denied")
+        setError("Incident not found or invalid token")
       }
     } catch (error) {
       setError("Failed to fetch incident")
@@ -106,12 +127,15 @@ export default function IncidentDetailPage() {
     }
   }
 
-  const handleAction = async (action: 'approve' | 'reject' | 'hold') => {
+  const handleReview = async (action: 'approve' | 'reject' | 'hold') => {
     if (!incident) return
 
     setSubmitting(true)
     try {
-      const response = await fetch(`/api/incidents/${incident.id}`, {
+      // Use the new unified API endpoint
+      const url = `/api/incidents/${incident.id}${token && role ? `?token=${token}&role=${role}` : ''}`
+      
+      const response = await fetch(url, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -138,25 +162,6 @@ export default function IncidentDetailPage() {
     }
   }
 
-  const canTakeAction = () => {
-    if (!incident || !session?.user) return false
-    
-    const userRole = session.user.role
-    const currentStatus = incident.status
-    
-    // QC can act on OPEN or PENDING_QC incidents
-    if (userRole === 'QC' && ['OPEN', 'PENDING_QC'].includes(currentStatus)) {
-      return true
-    }
-    
-    // PM can act on QC_APPROVED incidents
-    if (userRole === 'PM' && currentStatus === 'QC_APPROVED') {
-      return true
-    }
-    
-    return false
-  }
-
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'OPEN':
@@ -166,7 +171,7 @@ export default function IncidentDetailPage() {
       case 'QC_REJECTED':
         return 'bg-red-100 text-red-800'
       case 'PM_APPROVED':
-        return 'bg-green-100 text-green-800'
+        return 'bg-emerald-100 text-emerald-800'
       case 'PM_REJECTED':
         return 'bg-red-100 text-red-800'
       case 'ON_HOLD':
@@ -177,7 +182,7 @@ export default function IncidentDetailPage() {
   }
 
   const getPriorityColor = (priority: string) => {
-    switch (priority) {
+    switch (priority.toUpperCase()) {
       case 'HIGH':
         return 'bg-red-100 text-red-800'
       case 'MEDIUM':
@@ -189,14 +194,73 @@ export default function IncidentDetailPage() {
     }
   }
 
+  const canReview = () => {
+    if (!incident) {
+      console.log('DEBUG canReview: No incident data')
+      return false
+    }
+    
+    console.log('DEBUG canReview:', {
+      incident: {
+        status: incident.status,
+        qcAt: incident.qcAt,
+        pmAt: incident.pmAt
+      },
+      token,
+      role,
+      session: session?.user ? {
+        role: session.user.role,
+        email: session.user.email
+      } : 'No session'
+    })
+    
+    // Mode 1: Akses via WhatsApp link dengan token
+    if (token && role) {
+      console.log('DEBUG: Using token-based access')
+      // QC dapat review jika status OPEN atau PENDING_QC dan belum di-review QC
+      if (role === 'qc' && ['OPEN', 'PENDING_QC'].includes(incident.status) && !incident.qcAt) {
+        console.log('DEBUG: QC token-based review allowed')
+        return true
+      }
+      
+      // PM dapat review jika sudah QC_APPROVED dan belum di-review PM
+      if (role === 'pm' && incident.status === 'QC_APPROVED' && !incident.pmAt) {
+        console.log('DEBUG: PM token-based review allowed')
+        return true
+      }
+    }
+    
+    // Mode 2: Akses normal dari dashboard dengan session
+    if (session?.user) {
+      console.log('DEBUG: Using session-based access')
+      const userRole = session.user.role
+      
+      // QC user dapat review jika status OPEN atau PENDING_QC dan belum di-review QC
+      if ((userRole === 'QC' || userRole === 'ADMIN') && 
+          ['OPEN', 'PENDING_QC'].includes(incident.status) && 
+          !incident.qcAt) {
+        console.log('DEBUG: QC session-based review allowed')
+        return true
+      }
+      
+      // PM user dapat review jika sudah QC_APPROVED dan belum di-review PM
+      if ((userRole === 'PM' || userRole === 'ADMIN') && 
+          incident.status === 'QC_APPROVED' && 
+          !incident.pmAt) {
+        console.log('DEBUG: PM session-based review allowed')
+        return true
+      }
+    }
+    
+    console.log('DEBUG: Review not allowed')
+    return false
+  }
+
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center min-h-64">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-2 text-gray-600">Loading incident...</p>
-          </div>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600" />
         </div>
       </DashboardLayout>
     )
@@ -205,15 +269,17 @@ export default function IncidentDetailPage() {
   if (error) {
     return (
       <DashboardLayout>
-        <div className="max-w-4xl mx-auto p-6">
-          <Alert className="mb-6">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-          <Button onClick={() => router.back()} variant="outline">
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Go Back
-          </Button>
+        <div className="flex items-center justify-center min-h-screen">
+          <Card className="max-w-md">
+            <CardContent className="p-6 text-center">
+              <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+              <h2 className="text-lg font-semibold mb-2">Error</h2>
+              <p className="text-gray-600">{error}</p>
+              <Button onClick={() => router.back()} className="mt-4">
+                Go Back
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </DashboardLayout>
     )
@@ -222,15 +288,17 @@ export default function IncidentDetailPage() {
   if (!incident) {
     return (
       <DashboardLayout>
-        <div className="max-w-4xl mx-auto p-6">
-          <Alert className="mb-6">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>Incident not found</AlertDescription>
-          </Alert>
-          <Button onClick={() => router.back()} variant="outline">
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Go Back
-          </Button>
+        <div className="flex items-center justify-center min-h-screen">
+          <Card className="max-w-md">
+            <CardContent className="p-6 text-center">
+              <FileText className="h-12 w-12 text-gray-500 mx-auto mb-4" />
+              <h2 className="text-lg font-semibold mb-2">Incident Not Found</h2>
+              <p className="text-gray-600">The requested incident could not be found.</p>
+              <Button onClick={() => router.back()} className="mt-4">
+                Go Back
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </DashboardLayout>
     )
@@ -238,10 +306,15 @@ export default function IncidentDetailPage() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-6xl mx-auto p-6">
+      <div className="p-6 max-w-7xl mx-auto">
         {/* Notification */}
         {notification && (
-          <Alert className={`mb-6 ${notification.type === 'success' ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
+          <Alert className={`mb-6 ${notification.type === 'success' ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50'}`}>
+            {notification.type === 'success' ? (
+              <CheckCircle className="h-4 w-4 text-green-600" />
+            ) : (
+              <AlertTriangle className="h-4 w-4 text-red-600" />
+            )}
             <AlertDescription className={notification.type === 'success' ? 'text-green-800' : 'text-red-800'}>
               {notification.message}
             </AlertDescription>
@@ -251,21 +324,26 @@ export default function IncidentDetailPage() {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
-            <Button onClick={() => router.back()} variant="outline" size="sm">
+            <Button variant="outline" size="sm" onClick={() => router.back()}>
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back
             </Button>
-            <h1 className="text-2xl font-bold">Incident Details</h1>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Incident Detail</h1>
+              <p className="text-sm text-gray-600">
+                {role === 'qc' ? 'QC Review' : role === 'pm' ? 'PM Review' : 'View Only'}
+              </p>
+            </div>
           </div>
           <Badge className={getStatusColor(incident.status)}>
-            {incident.status.replace('_', ' ')}
+            {incident.status?.replace('_', ' ') || 'Unknown Status'}
           </Badge>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Incident Information */}
+            {/* Incident Details */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -299,7 +377,10 @@ export default function IncidentDetailPage() {
                   </div>
                   
                   <div>
-                    <label className="text-sm font-medium text-gray-600">Priority</label>
+                    <label className="text-sm font-medium text-gray-600 flex items-center gap-1">
+                      <AlertTriangle className="h-4 w-4" />
+                      Priority
+                    </label>
                     <Badge className={getPriorityColor(incident.priority)}>
                       {incident.priority}
                     </Badge>
@@ -357,8 +438,8 @@ export default function IncidentDetailPage() {
               </Card>
             )}
 
-            {/* Take Action Section - Only show if user can take action */}
-            {canTakeAction() && (
+            {/* Action Buttons - Only show if user can review */}
+            {canReview() && (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -374,40 +455,39 @@ export default function IncidentDetailPage() {
                     </label>
                     <Textarea
                       id="comment"
-                      placeholder="Add your review comments here..."
+                      placeholder="Add your comments here..."
                       value={comment}
                       onChange={(e) => setComment(e.target.value)}
-                      rows={4}
-                      className="resize-none bg-white"
+                      rows={3}
                     />
                   </div>
 
                   {/* Action Buttons */}
                   <div className="flex flex-wrap gap-3">
                     <Button
-                      onClick={() => handleAction('approve')}
+                      onClick={() => handleReview('approve')}
                       disabled={submitting}
-                      className="bg-green-600 hover:bg-green-700 text-white flex-1 sm:flex-none"
+                      className="bg-green-600 hover:bg-green-700 text-white"
                     >
                       <CheckCircle className="h-4 w-4 mr-2" />
                       {submitting ? 'Processing...' : 'Approve'}
                     </Button>
                     
                     <Button
-                      onClick={() => handleAction('reject')}
+                      onClick={() => handleReview('reject')}
                       disabled={submitting}
                       variant="destructive"
-                      className="bg-red-600 hover:bg-red-700 text-white flex-1 sm:flex-none"
+                      className="bg-red-600 hover:bg-red-700 text-white"
                     >
                       <XCircle className="h-4 w-4 mr-2" />
                       {submitting ? 'Processing...' : 'Reject'}
                     </Button>
                     
                     <Button
-                      onClick={() => handleAction('hold')}
+                      onClick={() => handleReview('hold')}
                       disabled={submitting}
                       variant="outline"
-                      className="border-yellow-600 text-yellow-600 hover:bg-yellow-50 flex-1 sm:flex-none"
+                      className="border-yellow-600 text-yellow-600 hover:bg-yellow-50"
                     >
                       <Pause className="h-4 w-4 mr-2" />
                       {submitting ? 'Processing...' : 'Hold'}

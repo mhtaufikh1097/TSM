@@ -19,8 +19,15 @@ export async function POST(request: NextRequest) {
           message: "WhatsApp connection restarted" 
         })
 
+      case "reset":
+        await whatsappService.resetAndRestart()
+        return NextResponse.json({ 
+          success: true, 
+          message: "WhatsApp connection reset and restarted" 
+        })
+
       case "clear_session":
-        await whatsappService.clearSession()
+        await whatsappService.clearSessionManually()
         return NextResponse.json({ 
           success: true, 
           message: "Session cleared. Please restart the service." 

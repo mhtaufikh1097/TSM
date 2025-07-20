@@ -6,6 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { 
   Users, 
   Search, 
@@ -13,7 +16,9 @@ import {
   Phone,
   Mail,
   Building,
-  Briefcase
+  Briefcase,
+  Plus,
+  X
 } from "lucide-react"
 
 interface User {
@@ -22,8 +27,6 @@ interface User {
   email: string
   role: string
   phone?: string
-  department?: string
-  position?: string
   createdAt: string
 }
 
@@ -33,6 +36,15 @@ export default function UserManagement() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [roleFilter, setRoleFilter] = useState<string>("ALL")
+  const [showAddDialog, setShowAddDialog] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [newUser, setNewUser] = useState({
+    name: "",
+    email: "",
+    password: "",
+    role: "REPORTER",
+    phone: ""
+  })
 
   useEffect(() => {
     if (session?.user?.role === "ADMIN") {
@@ -57,6 +69,43 @@ export default function UserManagement() {
       setUsers([])
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSubmitting(true)
+
+    try {
+      const response = await fetch("/api/users", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(newUser),
+      })
+
+      if (response.ok) {
+        // Reset form
+        setNewUser({
+          name: "",
+          email: "",
+          password: "",
+          role: "REPORTER",
+          phone: ""
+        })
+        setShowAddDialog(false)
+        // Refresh users list
+        fetchUsers()
+      } else {
+        const errorData = await response.json()
+        alert(errorData.error || "Failed to add user")
+      }
+    } catch (error) {
+      console.error("Error adding user:", error)
+      alert("Failed to add user")
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -111,9 +160,91 @@ export default function UserManagement() {
           <h1 className="text-2xl font-bold text-gray-900">Manajemen Pengguna</h1>
           <p className="text-gray-600">Kelola pengguna sistem TSM</p>
         </div>
-        <Badge variant="outline" className="text-sm">
-          {filteredUsers.length} pengguna
-        </Badge>
+        <div className="flex items-center gap-3">
+          <Badge variant="outline" className="text-sm">
+            {filteredUsers.length} pengguna
+          </Badge>
+          <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="w-4 h-4 mr-2" />
+                Tambah User
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Tambah User Baru</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleAddUser} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name">Nama Lengkap *</Label>
+                  <Input
+                    id="name"
+                    value={newUser.name}
+                    onChange={(e) => setNewUser({...newUser, name: e.target.value})}
+                    required
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email *</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={newUser.email}
+                    onChange={(e) => setNewUser({...newUser, email: e.target.value})}
+                    required
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password *</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={newUser.password}
+                    onChange={(e) => setNewUser({...newUser, password: e.target.value})}
+                    required
+                    minLength={6}
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="role">Role *</Label>
+                  <Select value={newUser.role} onValueChange={(value) => setNewUser({...newUser, role: value})}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="REPORTER">Reporter</SelectItem>
+                      <SelectItem value="QC">QC</SelectItem>
+                      <SelectItem value="PM">PM</SelectItem>
+                      <SelectItem value="ADMIN">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="phone">No. Telepon</Label>
+                  <Input
+                    id="phone"
+                    value={newUser.phone}
+                    onChange={(e) => setNewUser({...newUser, phone: e.target.value})}
+                  />
+                </div>
+                
+                <div className="flex gap-2 pt-4">
+                  <Button type="submit" disabled={submitting} className="flex-1">
+                    {submitting ? "Menambahkan..." : "Tambah User"}
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => setShowAddDialog(false)}>
+                    Batal
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       {/* Filters */}
@@ -172,18 +303,6 @@ export default function UserManagement() {
                       <div className="flex items-center gap-2 text-gray-600">
                         <Phone className="w-3 h-3" />
                         {user.phone}
-                      </div>
-                    )}
-                    {user.department && (
-                      <div className="flex items-center gap-2 text-gray-600">
-                        <Building className="w-3 h-3" />
-                        {user.department}
-                      </div>
-                    )}
-                    {user.position && (
-                      <div className="flex items-center gap-2 text-gray-600">
-                        <Briefcase className="w-3 h-3" />
-                        {user.position}
                       </div>
                     )}
                     <div className="text-gray-500">

@@ -1,20 +1,17 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
-import DashboardLayout from "@/components/layouts/DashboardLayout"
+import { useParams, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
+import { Textarea } from "@/components/ui/textarea"
 import { 
-  ArrowLeft,
   Calendar,
   MapPin,
   User,
   Clock,
   Download,
-  Eye,
   MessageSquare,
   CheckCircle,
   XCircle,
@@ -24,7 +21,7 @@ import {
   Pause
 } from "lucide-react"
 import { format } from "date-fns"
-import { cn } from "@/lib/utils"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 interface Incident {
   id: string
@@ -49,13 +46,11 @@ interface Incident {
     id: string
     name: string
     email: string
-    role: string
   }
   pm?: {
     id: string
     name: string
     email: string
-    role: string
   }
   attachments: Array<{
     id: string
@@ -66,326 +61,353 @@ interface Incident {
     size: number
     createdAt: string
   }>
-  logs: Array<{
-    id: string
-    action: string
-    oldStatus?: string
-    newStatus?: string
-    comment?: string
-    userId: string
-    createdAt: string
-  }>
 }
 
-const STATUS_CONFIG = {
-  OPEN: { label: "Open", color: "bg-blue-100 text-blue-800", icon: AlertTriangle },
-  ON_HOLD: { label: "On Hold", color: "bg-yellow-100 text-yellow-800", icon: Pause },
-  QC_APPROVED: { label: "QC Approved", color: "bg-green-100 text-green-800", icon: CheckCircle },
-  QC_REJECTED: { label: "QC Rejected", color: "bg-red-100 text-red-800", icon: XCircle },
-  PM_APPROVED: { label: "PM Approved", color: "bg-emerald-100 text-emerald-800", icon: CheckCircle },
-  PM_REJECTED: { label: "PM Rejected", color: "bg-red-100 text-red-800", icon: XCircle },
-  CLOSED: { label: "Closed", color: "bg-gray-100 text-gray-800", icon: CheckCircle },
-  // Legacy support (temporary)
-  PENDING_QC: { label: "Pending QC", color: "bg-yellow-100 text-yellow-800", icon: Clock },
-  APPROVED_QC: { label: "QC Approved", color: "bg-blue-100 text-blue-800", icon: CheckCircle },
-  REJECTED_QC: { label: "QC Rejected", color: "bg-red-100 text-red-800", icon: XCircle },
-  PENDING_PM: { label: "Pending PM", color: "bg-orange-100 text-orange-800", icon: Clock },
-  APPROVED_PM: { label: "PM Approved", color: "bg-green-100 text-green-800", icon: CheckCircle },
-  REJECTED_PM: { label: "PM Rejected", color: "bg-red-100 text-red-800", icon: XCircle },
-}
-
-const PRIORITY_CONFIG = {
-  LOW: { label: "Low", color: "bg-gray-100 text-gray-800" },
-  MEDIUM: { label: "Medium", color: "bg-blue-100 text-blue-800" },
-  HIGH: { label: "High", color: "bg-orange-100 text-orange-800" },
-  CRITICAL: { label: "Critical", color: "bg-red-100 text-red-800" },
-}
-
-export default function IncidentDetailPage() {
+export default function IncidentPage() {
   const params = useParams()
-  const router = useRouter()
+  const searchParams = useSearchParams()
   const [incident, setIncident] = useState<Incident | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const [comment, setComment] = useState("")
+  const [notification, setNotification] = useState<{type: 'success' | 'error', message: string} | null>(null)
+
+  const token = searchParams.get('token')
+  const role = searchParams.get('role')
+  const incidentId = params.id as string
+
+  const showNotification = (type: 'success' | 'error', message: string) => {
+    setNotification({type, message})
+    setTimeout(() => setNotification(null), 3000)
+  }
 
   useEffect(() => {
-    const fetchIncident = async () => {
-      try {
-        const response = await fetch(`/api/incidents/${params.id}`)
-        const data = await response.json()
-
-        if (!response.ok) {
-          throw new Error(data.error || "Failed to fetch incident")
-        }
-
-        setIncident(data.incident)
-      } catch (error) {
-        console.error("Error fetching incident:", error)
-        setError(error instanceof Error ? error.message : "Failed to load incident")
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    if (params.id) {
+    if (incidentId && token && role) {
       fetchIncident()
+    } else {
+      setError("Missing required parameters (token or role)")
+      setLoading(false)
     }
-  }, [params.id])
+  }, [incidentId, token, role])
 
-  const getFileIcon = (mimeType: string) => {
-    if (mimeType.startsWith("image/")) return <ImageIcon className="w-4 h-4" />
-    return <FileText className="w-4 h-4" />
+  const fetchIncident = async () => {
+    try {
+      const response = await fetch(`/api/incidents/${incidentId}?token=${token}&role=${role}`)
+      if (response.ok) {
+        const data = await response.json()
+        setIncident(data.incident || data)
+      } else {
+        const errorData = await response.json()
+        setError(errorData.error || "Failed to fetch incident")
+      }
+    } catch (error) {
+      setError("Failed to fetch incident")
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return "0 Bytes"
-    const k = 1024
-    const sizes = ["Bytes", "KB", "MB", "GB"]
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
+  const handleAction = async (action: 'approve' | 'reject' | 'hold') => {
+    if (!incident) return
+
+    setSubmitting(true)
+    try {
+      const url = `/api/incidents/${incident.id}?token=${token}&role=${role}`
+      
+      const response = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          comment
+        })
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        const actionText = action === 'hold' ? 'put on hold' : `${action}d`
+        showNotification('success', `Incident ${actionText} successfully!`)
+        setComment("")
+        // Refresh incident data
+        setTimeout(() => fetchIncident(), 1000)
+      } else {
+        showNotification('error', data.error || `Failed to ${action} incident`)
+      }
+    } catch (error) {
+      showNotification('error', `Failed to ${action} incident`)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  const downloadFile = (filePath: string, filename: string) => {
-    const link = document.createElement("a")
-    link.href = filePath
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'OPEN':
+        return 'bg-blue-100 text-blue-800'
+      case 'QC_APPROVED':
+        return 'bg-green-100 text-green-800'
+      case 'QC_REJECTED':
+        return 'bg-red-100 text-red-800'
+      case 'PM_APPROVED':
+        return 'bg-emerald-100 text-emerald-800'
+      case 'PM_REJECTED':
+        return 'bg-red-100 text-red-800'
+      case 'ON_HOLD':
+        return 'bg-yellow-100 text-yellow-800'
+      default:
+        return 'bg-gray-100 text-gray-800'
+    }
+  }
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority.toUpperCase()) {
+      case 'HIGH':
+        return 'bg-red-100 text-red-800'
+      case 'MEDIUM':
+        return 'bg-yellow-100 text-yellow-800'
+      case 'LOW':
+        return 'bg-green-100 text-green-800'
+      default:
+        return 'bg-gray-100 text-gray-800'
+    }
+  }
+
+  const canTakeAction = () => {
+    if (!incident || !token || !role) return false
+    
+    // QC can act on OPEN incidents that haven't been reviewed by QC
+    if (role === 'qc' && ['OPEN', 'PENDING_QC'].includes(incident.status) && !incident.qcAt) {
+      return true
+    }
+    
+    // PM can act on QC_APPROVED incidents that haven't been reviewed by PM
+    if (role === 'pm' && incident.status === 'QC_APPROVED' && !incident.pmAt) {
+      return true
+    }
+    
+    return false
   }
 
   if (loading) {
     return (
-      <DashboardLayout>
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading incident details...</p>
-          </div>
-        </div>
-      </DashboardLayout>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600" />
+      </div>
     )
   }
 
-  if (error || !incident) {
+  if (error) {
     return (
-      <DashboardLayout>
-        <div className="p-6 lg:p-8">
-          <Card className="border-red-200 bg-red-50">
-            <CardContent className="pt-6">
-              <div className="flex items-center text-red-700">
-                <AlertTriangle className="w-4 h-4 mr-2" />
-                {error || "Incident not found"}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </DashboardLayout>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Card className="max-w-md">
+          <CardContent className="p-6 text-center">
+            <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+            <h2 className="text-lg font-semibold mb-2">Error</h2>
+            <p className="text-gray-600">{error}</p>
+          </CardContent>
+        </Card>
+      </div>
     )
   }
 
-  const statusConfig = STATUS_CONFIG[incident.status as keyof typeof STATUS_CONFIG] || { 
-    label: incident.status, 
-    color: "bg-gray-100 text-gray-800", 
-    icon: AlertTriangle 
+  if (!incident) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Card className="max-w-md">
+          <CardContent className="p-6 text-center">
+            <FileText className="h-12 w-12 text-gray-500 mx-auto mb-4" />
+            <h2 className="text-lg font-semibold mb-2">Incident Not Found</h2>
+            <p className="text-gray-600">The requested incident could not be found.</p>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
-  const priorityConfig = PRIORITY_CONFIG[incident.priority as keyof typeof PRIORITY_CONFIG] || {
-    label: incident.priority,
-    color: "bg-gray-100 text-gray-800"
-  }
-  const StatusIcon = statusConfig.icon
 
   return (
-    <DashboardLayout>
-      <div className="p-6 lg:p-8 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <Button
-              variant="ghost"
-              onClick={() => router.back()}
-              className="p-2"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </Button>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">
-                Incident Details
-              </h1>
-              <p className="text-gray-600">#{incident.id.slice(-8).toUpperCase()}</p>
+              <h1 className="text-2xl font-bold text-gray-900">Incident Review</h1>
+              <p className="text-sm text-gray-600">
+                {role === 'qc' ? 'Quality Control Review' : role === 'pm' ? 'Project Manager Review' : 'Incident Details'}
+              </p>
             </div>
-          </div>
-          
-          <div className="flex items-center space-x-3">
-            <Badge className={statusConfig.color}>
-              <StatusIcon className="w-3 h-3 mr-1" />
-              {statusConfig.label}
-            </Badge>
-            <Badge className={priorityConfig.color}>
-              {priorityConfig.label}
+            <Badge className={getStatusColor(incident.status)}>
+              {incident.status?.replace('_', ' ') || 'Unknown Status'}
             </Badge>
           </div>
         </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        {/* Notification */}
+        {notification && (
+          <Alert className={`mb-6 ${notification.type === 'success' ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50'}`}>
+            {notification.type === 'success' ? (
+              <CheckCircle className="h-4 w-4 text-green-600" />
+            ) : (
+              <AlertTriangle className="h-4 w-4 text-red-600" />
+            )}
+            <AlertDescription className={notification.type === 'success' ? 'text-green-800' : 'text-red-800'}>
+              {notification.message}
+            </AlertDescription>
+          </Alert>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Incident Information */}
+            {/* Incident Details */}
             <Card>
               <CardHeader>
-                <CardTitle>Incident Information</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  Incident Information
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                    {incident.title}
-                  </h3>
-                  <p className="text-gray-700 whitespace-pre-wrap">
-                    {incident.description}
-                  </p>
+                  <label className="text-sm font-medium text-gray-600">Title</label>
+                  <p className="font-medium text-lg">{incident.title}</p>
                 </div>
-
-                <Separator />
-
+                
+                <div>
+                  <label className="text-sm font-medium text-gray-600">Description</label>
+                  <p className="text-gray-800 whitespace-pre-wrap bg-gray-50 p-3 rounded-md">{incident.description}</p>
+                </div>
+                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="flex items-center text-sm text-gray-600">
-                    <MapPin className="w-4 h-4 mr-2" />
-                    <span className="font-medium mr-2">Location:</span>
-                    {incident.location}
+                  <div>
+                    <label className="text-sm font-medium text-gray-600 flex items-center gap-1">
+                      <MapPin className="h-4 w-4" />
+                      Location
+                    </label>
+                    <p>{incident.location}</p>
                   </div>
-                  <div className="flex items-center text-sm text-gray-600">
-                    <Calendar className="w-4 h-4 mr-2" />
-                    <span className="font-medium mr-2">Occurred:</span>
-                    {format(new Date(incident.occurredAt), "MMM dd, yyyy 'at' hh:mm a")}
+                  
+                  <div>
+                    <label className="text-sm font-medium text-gray-600 flex items-center gap-1">
+                      <AlertTriangle className="h-4 w-4" />
+                      Priority
+                    </label>
+                    <Badge className={getPriorityColor(incident.priority)}>
+                      {incident.priority}
+                    </Badge>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-600 flex items-center gap-1">
+                      <Calendar className="h-4 w-4" />
+                      Occurred At
+                    </label>
+                    <p>{format(new Date(incident.occurredAt), 'PPpp')}</p>
+                  </div>
+                  
+                  <div>
+                    <label className="text-sm font-medium text-gray-600 flex items-center gap-1">
+                      <Clock className="h-4 w-4" />
+                      Reported At
+                    </label>
+                    <p>{format(new Date(incident.createdAt), 'PPpp')}</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* QC Review */}
-            {(incident.qc || incident.qcComment) && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <CheckCircle className="w-5 h-5 mr-2" />
-                    QC Review
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {incident.qc && (
-                    <div className="flex items-center">
-                      <User className="w-4 h-4 mr-2 text-gray-400" />
-                      <span className="font-medium mr-2">Reviewed by:</span>
-                      <span>{incident.qc.name}</span>
-                    </div>
-                  )}
-                  {incident.qcAt && (
-                    <div className="flex items-center text-sm text-gray-600">
-                      <Clock className="w-4 h-4 mr-2" />
-                      <span className="font-medium mr-2">Reviewed on:</span>
-                      {format(new Date(incident.qcAt), "MMM dd, yyyy 'at' hh:mm a")}
-                    </div>
-                  )}
-                  {incident.qcComment && (
-                    <div>
-                      <span className="font-medium text-gray-900">Comment:</span>
-                      <p className="text-gray-700 mt-1 whitespace-pre-wrap">
-                        {incident.qcComment}
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* PM Review */}
-            {(incident.pm || incident.pmComment) && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <CheckCircle className="w-5 h-5 mr-2" />
-                    PM Approval
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {incident.pm && (
-                    <div className="flex items-center">
-                      <User className="w-4 h-4 mr-2 text-gray-400" />
-                      <span className="font-medium mr-2">Approved by:</span>
-                      <span>{incident.pm.name}</span>
-                    </div>
-                  )}
-                  {incident.pmAt && (
-                    <div className="flex items-center text-sm text-gray-600">
-                      <Clock className="w-4 h-4 mr-2" />
-                      <span className="font-medium mr-2">Approved on:</span>
-                      {format(new Date(incident.pmAt), "MMM dd, yyyy 'at' hh:mm a")}
-                    </div>
-                  )}
-                  {incident.pmComment && (
-                    <div>
-                      <span className="font-medium text-gray-900">Comment:</span>
-                      <p className="text-gray-700 mt-1 whitespace-pre-wrap">
-                        {incident.pmComment}
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
             {/* Attachments */}
-            {incident.attachments.length > 0 && (
+            {incident.attachments && incident.attachments.length > 0 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Attachments ({incident.attachments.length})</CardTitle>
+                  <CardTitle className="flex items-center gap-2">
+                    <ImageIcon className="h-5 w-5" />
+                    Attachments
+                  </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {incident.attachments.map((attachment) => (
-                      <div
-                        key={attachment.id}
-                        className="flex items-center p-3 border rounded-lg hover:bg-gray-50"
-                      >
-                        <div className="flex-shrink-0 mr-3">
-                          {attachment.mimeType.startsWith("image/") ? (
-                            <img 
-                              src={attachment.path} 
-                              alt={attachment.originalName}
-                              className="w-12 h-12 object-cover rounded"
-                            />
-                          ) : (
-                            <div className="w-12 h-12 bg-gray-100 rounded flex items-center justify-center">
-                              {getFileIcon(attachment.mimeType)}
-                            </div>
-                          )}
-                        </div>
+                      <div key={attachment.id} className="flex items-center gap-3 p-3 border rounded-lg">
+                        <FileText className="h-8 w-8 text-blue-500" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">
-                            {attachment.originalName}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            {formatFileSize(attachment.size)}
-                          </p>
+                          <p className="font-medium truncate">{attachment.originalName}</p>
+                          <p className="text-sm text-gray-500">{attachment.mimeType}</p>
+                          <p className="text-xs text-gray-400">{(attachment.size / 1024).toFixed(1)} KB</p>
                         </div>
-                        <div className="flex space-x-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => window.open(attachment.path, "_blank")}
-                          >
-                            <Eye className="w-4 h-4" />
+                        <a href={`/api/files/${attachment.filename}`} target="_blank" rel="noopener noreferrer">
+                          <Button size="sm" variant="outline">
+                            <Download className="h-4 w-4" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => downloadFile(attachment.path, attachment.originalName)}
-                          >
-                            <Download className="w-4 h-4" />
-                          </Button>
-                        </div>
+                        </a>
                       </div>
                     ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Action Section - Only show if user can take action */}
+            {canTakeAction() && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <MessageSquare className="h-5 w-5" />
+                    Take Action
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Comment Section */}
+                  <div className="space-y-2">
+                    <label htmlFor="comment" className="text-sm font-medium">
+                      Comment (Optional)
+                    </label>
+                    <Textarea
+                      id="comment"
+                      placeholder="Add your review comments here..."
+                      value={comment}
+                      onChange={(e) => setComment(e.target.value)}
+                      rows={4}
+                      className="resize-none bg-white"
+                    />
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex flex-wrap gap-3">
+                    <Button
+                      onClick={() => handleAction('approve')}
+                      disabled={submitting}
+                      className="bg-green-600 hover:bg-green-700 text-white flex-1 sm:flex-none"
+                    >
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      {submitting ? 'Processing...' : 'Approve'}
+                    </Button>
+                    
+                    <Button
+                      onClick={() => handleAction('reject')}
+                      disabled={submitting}
+                      variant="destructive"
+                      className="bg-red-600 hover:bg-red-700 text-white flex-1 sm:flex-none"
+                    >
+                      <XCircle className="h-4 w-4 mr-2" />
+                      {submitting ? 'Processing...' : 'Reject'}
+                    </Button>
+                    
+                    <Button
+                      onClick={() => handleAction('hold')}
+                      disabled={submitting}
+                      variant="outline"
+                      className="border-yellow-600 text-yellow-600 hover:bg-yellow-50 flex-1 sm:flex-none"
+                    >
+                      <Pause className="h-4 w-4 mr-2" />
+                      {submitting ? 'Processing...' : 'Hold'}
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -397,82 +419,78 @@ export default function IncidentDetailPage() {
             {/* Reporter Info */}
             <Card>
               <CardHeader>
-                <CardTitle>Reporter Information</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <User className="h-5 w-5" />
+                  Reporter
+                </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center">
-                  <User className="w-4 h-4 mr-2 text-gray-400" />
-                  <div>
-                    <div className="font-medium text-gray-900">
-                      {incident.reporter.name}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      {incident.reporter.email}
-                    </div>
-                  </div>
-                </div>
-                <div className="text-sm text-gray-600">
-                  <span className="font-medium">Role:</span> {incident.reporter.role}
-                </div>
-                <div className="text-sm text-gray-600">
-                  <span className="font-medium">Reported:</span>{" "}
-                  {format(new Date(incident.createdAt), "MMM dd, yyyy 'at' hh:mm a")}
+              <CardContent>
+                <div className="space-y-2">
+                  <p className="font-medium">{incident.reporter.name}</p>
+                  <p className="text-sm text-gray-600">{incident.reporter.email}</p>
+                  <Badge variant="outline">{incident.reporter.role}</Badge>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Timeline */}
+            {/* Review History */}
             <Card>
               <CardHeader>
-                <CardTitle>Status Timeline</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="h-5 w-5" />
+                  Review History
+                </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-start">
-                    <div className="flex-shrink-0 w-2 h-2 bg-blue-600 rounded-full mt-2"></div>
-                    <div className="ml-4">
-                      <div className="text-sm font-medium text-gray-900">
-                        Incident Reported
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {format(new Date(incident.createdAt), "MMM dd, yyyy 'at' hh:mm a")}
-                      </div>
+              <CardContent className="space-y-4">
+                {/* QC Review */}
+                {incident.qc && incident.qcAt && (
+                  <div className="p-3 border rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle className="h-4 w-4 text-green-500" />
+                      <span className="font-medium text-sm">QC Review</span>
                     </div>
+                    <p className="text-sm text-gray-600 mb-1">{incident.qc.name}</p>
+                    <p className="text-xs text-gray-500">
+                      {format(new Date(incident.qcAt), 'PPpp')}
+                    </p>
+                    {incident.qcComment && (
+                      <p className="text-sm mt-2 p-2 bg-gray-50 rounded">
+                        {incident.qcComment}
+                      </p>
+                    )}
                   </div>
+                )}
 
-                  {incident.qcAt && (
-                    <div className="flex items-start">
-                      <div className="flex-shrink-0 w-2 h-2 bg-green-600 rounded-full mt-2"></div>
-                      <div className="ml-4">
-                        <div className="text-sm font-medium text-gray-900">
-                          QC Review Completed
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {format(new Date(incident.qcAt), "MMM dd, yyyy 'at' hh:mm a")}
-                        </div>
-                      </div>
+                {/* PM Review */}
+                {incident.pm && incident.pmAt && (
+                  <div className="p-3 border rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle className="h-4 w-4 text-blue-500" />
+                      <span className="font-medium text-sm">PM Review</span>
                     </div>
-                  )}
+                    <p className="text-sm text-gray-600 mb-1">{incident.pm.name}</p>
+                    <p className="text-xs text-gray-500">
+                      {format(new Date(incident.pmAt), 'PPpp')}
+                    </p>
+                    {incident.pmComment && (
+                      <p className="text-sm mt-2 p-2 bg-gray-50 rounded">
+                        {incident.pmComment}
+                      </p>
+                    )}
+                  </div>
+                )}
 
-                  {incident.pmAt && (
-                    <div className="flex items-start">
-                      <div className="flex-shrink-0 w-2 h-2 bg-green-600 rounded-full mt-2"></div>
-                      <div className="ml-4">
-                        <div className="text-sm font-medium text-gray-900">
-                          PM Approval Completed
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {format(new Date(incident.pmAt), "MMM dd, yyyy 'at' hh:mm a")}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                {/* No reviews yet */}
+                {!incident.qc && !incident.pm && (
+                  <p className="text-sm text-gray-500 text-center py-4">
+                    No reviews yet
+                  </p>
+                )}
               </CardContent>
             </Card>
           </div>
         </div>
       </div>
-    </DashboardLayout>
+    </div>
   )
 }
