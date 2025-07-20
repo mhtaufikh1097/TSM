@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,22 +27,22 @@ export async function GET(request: NextRequest) {
     const skip = (page - 1) * limit
 
     // Build filter conditions
-    const where: any = {}
+    const where: Prisma.IncidentWhereInput = {}
 
     if (search) {
       where.OR = [
-        { title: { contains: search, mode: "insensitive" } },
-        { description: { contains: search, mode: "insensitive" } },
-        { location: { contains: search, mode: "insensitive" } },
+        { title: { contains: search } },
+        { description: { contains: search } },
+        { location: { contains: search } },
       ]
     }
 
     if (status) {
-      where.status = status
+      where.status = status as "PENDING_QC" | "APPROVED_QC" | "REJECTED_QC" | "PENDING_PM" | "APPROVED_PM" | "REJECTED_PM"
     }
 
     if (priority) {
-      where.priority = priority
+      where.priority = priority as "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"
     }
 
     if (reporterId) {

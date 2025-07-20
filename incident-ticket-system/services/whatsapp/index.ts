@@ -1,65 +1,733 @@
-import { makeWASocket, DisconnectReason, useMultiFileAuthState } from '@baileys/md'
+import { makeWASocket, DisconnectReason, useMultiFileAuthState, WAMessage, ConnectionState } from '@whiskeysockets/baileys'
 import { Boom } from '@hapi/boom'
+import qrcode from 'qrcode-terminal'
+import QRCode from 'qrcode'
 import path from 'path'
+import fs from 'fs'
+import { prisma } from '@/lib/db'
+
+interface QueuedMessage {
+  id: string
+  phone: string
+  message: string
+  type: string
+  incidentId?: string
+  retryCount: number
+  maxRetries: number
+  timestamp: Date
+}
 
 class WhatsAppService {
   private socket: any = null
   private isConnected = false
+  private qrCode: string | null = null
+  private qrCodeBase64: string | null = null
+  private messageQueue: QueuedMessage[] = []
+  private processingQueue = false
+  private isInitializing = false
+  private sessionPath = path.join(process.cwd(), 'whatsapp_session')
+  private reconnectAttempts = 0
+  private maxReconnectAttempts = 10
+  private connectionState: string = 'close'
+  private lastDisconnectTime = 0
+  private minReconnectDelay = 3000 // 3 seconds minimum delay
+  private reconnectTimer: NodeJS.Timeout | null = null
+  private isReconnecting = false
+
+  constructor() {
+    // Auto-initialize on service startup
+    this.autoInitialize()
+  }
+
+  private async autoInitialize() {
+    try {
+      console.log('🚀 WhatsApp Service starting auto-initialization...')
+      // Add longer delay to ensure database is ready and prevent conflicts
+      setTimeout(() => {
+        this.initialize().catch(error => {
+          console.error('❌ Auto-initialization failed:', error)
+          // Don't retry auto-initialization if it fails
+        })
+      }, 5000) // Increased delay
+    } catch (error) {
+      console.error('❌ Auto-initialization setup failed:', error)
+    }
+  }
 
   async initialize() {
     try {
-      const { state, saveCreds } = await useMultiFileAuthState(
-        path.join(process.cwd(), 'whatsapp_session')
-      )
+      // Prevent multiple initialization attempts
+      if (this.isInitializing || this.isReconnecting) {
+        console.log('⏳ WhatsApp initialization already in progress...')
+        return null
+      }
+
+      this.isInitializing = true
+
+      // Clear any existing reconnect timer
+      if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer)
+        this.reconnectTimer = null
+      }
+
+      // Check if we've exceeded max reconnection attempts
+      if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+        console.log('❌ Max reconnection attempts reached. Clearing session...')
+        await this.clearSession()
+        this.reconnectAttempts = 0 // Reset after clearing session
+      }
+
+      // Close existing socket if any
+      if (this.socket) {
+        try {
+          // Check if socket exists and has a valid connection
+          if (this.socket.ws?.readyState === 1) { // Only end if connection is open
+            await this.socket.end()
+          } else if (this.socket.end) {
+            // Force close even if state is unclear
+            this.socket.end()
+          }
+          await new Promise(resolve => setTimeout(resolve, 2000)) // Wait longer for cleanup
+        } catch (error) {
+          console.log('Error closing existing socket:', error)
+        }
+        this.socket = null
+      }
+
+      // Ensure session directory exists
+      if (!fs.existsSync(this.sessionPath)) {
+        fs.mkdirSync(this.sessionPath, { recursive: true })
+      }
+
+      console.log('🔌 Initializing WhatsApp connection...')
+      const { state, saveCreds } = await useMultiFileAuthState(this.sessionPath)
 
       this.socket = makeWASocket({
         auth: state,
-        printQRInTerminal: true,
+        printQRInTerminal: false,
+        generateHighQualityLinkPreview: true,
+        markOnlineOnConnect: true,
+        browser: ['TSM WhatsApp Bot', 'Chrome', '22.04.4'],
+        defaultQueryTimeoutMs: 60000,
+        connectTimeoutMs: 60000,
+        qrTimeout: 60000,
+        retryRequestDelayMs: 250,
+        maxMsgRetryCount: 3,
+        shouldSyncHistoryMessage: () => false,
+        emitOwnEvents: false,
+        getMessage: async (key) => {
+          return { conversation: 'Hello' }
+        }
       })
 
+      // Set up event listeners
       this.socket.ev.on('connection.update', this.handleConnectionUpdate.bind(this))
       this.socket.ev.on('creds.update', saveCreds)
+      this.socket.ev.on('messages.upsert', this.handleIncomingMessages.bind(this))
 
+      // Start message queue processor
+      this.startQueueProcessor()
+
+      this.isInitializing = false
       return this.socket
     } catch (error) {
       console.error('WhatsApp initialization error:', error)
+      this.isInitializing = false
+      this.reconnectAttempts++
+      await this.updateSessionStatus(false, undefined, JSON.stringify(error))
+      
+      // Auto retry with exponential backoff
+      this.scheduleReconnect()
+      
       throw error
     }
   }
 
-  private handleConnectionUpdate(update: any) {
-    const { connection, lastDisconnect } = update
-    
-    if (connection === 'close') {
-      const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut
-      console.log('Connection closed due to:', lastDisconnect?.error)
+  private async handleConnectionUpdate(update: Partial<ConnectionState & { qr?: string; lastDisconnect?: any }>) {
+    try {
+      console.log('🔄 Connection update:', JSON.stringify(update, null, 2))
       
-      if (shouldReconnect) {
-        this.initialize()
+      this.connectionState = update.connection || this.connectionState
+
+      if (update.qr) {
+        console.log('📱 QR Code received, generating...')
+        try {
+          this.qrCode = update.qr
+          this.qrCodeBase64 = await QRCode.toDataURL(update.qr)
+          console.log('✅ QR Code generated successfully')
+          await this.updateSessionStatus(false, this.qrCodeBase64, undefined)
+        } catch (qrError) {
+          console.error('❌ Failed to generate QR code:', qrError)
+          await this.updateSessionStatus(false, undefined, 'Failed to generate QR code')
+        }
       }
-    } else if (connection === 'open') {
-      console.log('WhatsApp connected successfully')
-      this.isConnected = true
+
+      // Handle connection states
+      switch (update.connection) {
+        case 'open':
+          console.log('✅ WhatsApp connection established successfully!')
+          this.isConnected = true
+          this.reconnectAttempts = 0 // Reset attempts on successful connection
+          this.qrCode = null
+          this.qrCodeBase64 = null
+          this.lastDisconnectTime = 0
+          // Clear any pending reconnect timer
+          if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer)
+            this.reconnectTimer = null
+          }
+          this.isReconnecting = false
+          await this.updateSessionStatus(true, undefined, undefined)
+          await this.processMessageQueue()
+          break
+
+        case 'connecting':
+          console.log('🔄 Connecting to WhatsApp...')
+          this.isConnected = false
+          break
+
+        case 'close':
+          console.log('❌ WhatsApp connection closed')
+          this.isConnected = false
+          this.lastDisconnectTime = Date.now()
+          
+          if (update.lastDisconnect?.error) {
+            console.error('❌ Connection error:', update.lastDisconnect.error)
+            const errorMessage = update.lastDisconnect.error.message || 'Connection error'
+            
+            // Handle specific error cases
+            if (errorMessage.includes('conflict') || errorMessage.includes('replaced')) {
+              console.log('⚠️ Session conflict detected - clearing session and stopping reconnect')
+              await this.clearSession()
+              await this.updateSessionStatus(false, undefined, 'Session conflict - cleared')
+              this.reconnectAttempts = this.maxReconnectAttempts // Stop auto reconnect
+              return
+            }
+            
+            if (errorMessage.includes('Stream Errored')) {
+              console.log('⚠️ Stream error detected - will attempt reconnection after delay')
+              await this.updateSessionStatus(false, undefined, 'Stream error - reconnecting')
+              // Add longer delay for stream errors
+              await new Promise(resolve => setTimeout(resolve, 5000))
+            }
+            
+            // Auto reconnect if under the limit
+            if (this.reconnectAttempts < this.maxReconnectAttempts) {
+              this.scheduleReconnect()
+            } else {
+              console.log('❌ Max reconnection attempts reached. Manual intervention required.')
+              await this.updateSessionStatus(false, undefined, 'Max reconnection attempts reached')
+            }
+          } else {
+            // Normal disconnection - still try to reconnect
+            console.log('ℹ️ Normal disconnection detected')
+            await this.updateSessionStatus(false, undefined, 'Connection closed normally')
+            if (this.reconnectAttempts < this.maxReconnectAttempts) {
+              this.scheduleReconnect()
+            }
+          }
+          break
+
+        default:
+          console.log(`ℹ️ Connection state: ${update.connection}`)
+          break
+      }
+    } catch (error) {
+      console.error('❌ Error handling connection update:', error)
+      await this.updateSessionStatus(false, undefined, `Connection update error: ${error}`)
     }
   }
 
-  async sendMessage(to: string, message: string) {
-    if (!this.socket || !this.isConnected) {
-      throw new Error('WhatsApp not connected')
-    }
-
-    try {
-      // Format phone number (remove + and add @s.whatsapp.net)
-      const formattedNumber = to.replace(/\+/g, '') + '@s.whatsapp.net'
+  private async handleIncomingMessages(messageUpsert: any) {
+    const { messages } = messageUpsert
+    
+    for (const message of messages) {
+      if (message.key.fromMe) continue // Skip messages sent by us
       
-      await this.socket.sendMessage(formattedNumber, {
-        text: message
+      try {
+        await this.processIncomingMessage(message)
+      } catch (error) {
+        console.error('Error processing incoming message:', error)
+      }
+    }
+  }
+
+  private async processIncomingMessage(message: WAMessage) {
+    const phoneNumber = this.extractPhoneNumber(message.key.remoteJid || '')
+    const messageText = message.message?.conversation || 
+                       message.message?.extendedTextMessage?.text || ''
+    
+    // Log incoming message
+    console.log(`Incoming message from ${phoneNumber}: ${messageText}`)
+    
+    // Here you can add webhook functionality or auto-responders
+    // For now, we'll just log it
+    
+    // Example: Auto-respond to status inquiries
+    if (messageText.toLowerCase().includes('status')) {
+      await this.sendMessage(phoneNumber, 
+        '🤖 Untuk melihat status incident Anda, silakan akses portal incident management kami.\n\n' +
+        'Jika memerlukan bantuan, hubungi administrator sistem.'
+      )
+    }
+  }
+
+  private async updateSessionStatus(isConnected: boolean, qrCode?: string | null, error?: string) {
+    try {
+      await prisma.whatsAppSession.upsert({
+        where: { id: 'main' },
+        create: {
+          id: 'main',
+          isConnected,
+          qrCode,
+          lastSeen: new Date()
+        },
+        update: {
+          isConnected,
+          qrCode,
+          lastSeen: new Date()
+        }
+      })
+    } catch (error) {
+      console.error('Error updating session status:', error)
+    }
+  }
+
+  async sendMessage(phone: string, message: string, type: string = 'SYSTEM_NOTIFICATION', incidentId?: string): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    try {
+      console.log(`📤 Attempting to send message to ${phone}:`, message.substring(0, 50) + '...')
+      
+      // Format phone number for Indonesia
+      const formattedPhone = this.formatPhoneNumber(phone)
+      console.log(`📱 Formatted phone: ${formattedPhone}`)
+      
+      // Create message record first
+      const messageRecord = await prisma.whatsAppMessage.create({
+        data: {
+          phone: formattedPhone.replace('@s.whatsapp.net', ''),
+          message,
+          type: type as any,
+          incidentId,
+          status: 'PENDING'
+        }
       })
       
-      console.log(`Message sent to ${to}:`, message)
-      return { success: true }
+      console.log(`📝 Message record created with ID: ${messageRecord.id}`)
+
+      if (!this.isConnected || !this.socket) {
+        console.log('❌ WhatsApp not connected, adding to queue...')
+        // Add to queue if not connected
+        return this.addToQueue(phone, message, type, incidentId, messageRecord.id)
+      }
+
+      // Check if phone number exists on WhatsApp
+      try {
+        const [result] = await this.socket.onWhatsApp(formattedPhone.replace('@s.whatsapp.net', ''))
+        if (!result.exists) {
+          console.log(`❌ Phone number ${phone} does not exist on WhatsApp`)
+          await this.updateMessageStatus(messageRecord.id, 'FAILED', 'Phone number not on WhatsApp')
+          return { success: false, error: 'Phone number not on WhatsApp' }
+        }
+        console.log(`✅ Phone number ${phone} exists on WhatsApp`)
+      } catch (checkError) {
+        console.warn('⚠️ Could not verify phone number, proceeding anyway:', checkError)
+      }
+
+      try {
+        console.log(`🚀 Sending message via WhatsApp to ${formattedPhone}...`)
+        
+        // Send message with retry
+        const result = await this.socket.sendMessage(formattedPhone, {
+          text: message
+        })
+        
+        console.log(`✅ Message sent successfully!`, result)
+        
+        // Update message status
+        await prisma.whatsAppMessage.update({
+          where: { id: messageRecord.id },
+          data: {
+            status: 'SENT',
+            sentAt: new Date()
+          }
+        })
+        
+        console.log(`✅ Message sent to ${phone}: ${message.substring(0, 100)}...`)
+        return { success: true, messageId: messageRecord.id }
+        
+      } catch (sendError) {
+        console.error('❌ Failed to send message:', sendError)
+        
+        // Update message with error
+        await prisma.whatsAppMessage.update({
+          where: { id: messageRecord.id },
+          data: {
+            status: 'FAILED',
+            error: sendError instanceof Error ? sendError.message : 'Unknown error'
+          }
+        })
+        
+        // Add to queue for retry
+        return this.addToQueue(phone, message, type, incidentId, messageRecord.id)
+      }
+      
     } catch (error) {
-      console.error('Send message error:', error)
+      console.error('❌ Error in sendMessage:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  }
+
+  private async addToQueue(phone: string, message: string, type: string, incidentId?: string, messageId?: string): Promise<{ success: boolean; messageId?: string }> {
+    try {
+      let messageRecord;
+      
+      if (messageId) {
+        // Use existing message record
+        messageRecord = { id: messageId }
+      } else {
+        // Create new message record
+        messageRecord = await prisma.whatsAppMessage.create({
+          data: {
+            phone: this.formatPhoneNumber(phone).replace('@s.whatsapp.net', ''),
+            message,
+            type: type as any,
+            incidentId,
+            status: 'PENDING'
+          }
+        })
+      }
+
+      this.messageQueue.push({
+        id: messageRecord.id,
+        phone,
+        message,
+        type,
+        incidentId,
+        retryCount: 0,
+        maxRetries: 3,
+        timestamp: new Date()
+      })
+
+      console.log(`📋 Message queued for ${phone} (ID: ${messageRecord.id})`)
+      return { success: true, messageId: messageRecord.id }
+      
+    } catch (error) {
+      console.error('❌ Error adding message to queue:', error)
+      return { success: false }
+    }
+  }
+
+  private async startQueueProcessor() {
+    setInterval(async () => {
+      if (!this.processingQueue && this.messageQueue.length > 0 && this.isConnected) {
+        await this.processMessageQueue()
+      }
+    }, 5000) // Check every 5 seconds
+  }
+
+  private async processMessageQueue() {
+    if (this.processingQueue || !this.isConnected || this.messageQueue.length === 0) {
+      return
+    }
+    
+    console.log(`📤 Processing ${this.messageQueue.length} queued messages...`)
+    this.processingQueue = true
+    
+    try {
+      const messagesToProcess = [...this.messageQueue]
+      this.messageQueue = []
+      
+      for (const queuedMessage of messagesToProcess) {
+        try {
+          console.log(`📩 Processing queued message ${queuedMessage.id} to ${queuedMessage.phone}`)
+          
+          if (!this.socket || !this.isConnected) {
+            console.log('❌ Connection lost during queue processing, re-queuing message')
+            this.messageQueue.push(queuedMessage)
+            continue
+          }
+
+          const formattedPhone = this.formatPhoneNumber(queuedMessage.phone)
+          
+          // Send the message directly
+          const result = await this.socket.sendMessage(formattedPhone, {
+            text: queuedMessage.message
+          })
+          
+          console.log(`✅ Queued message sent successfully to ${queuedMessage.phone}`)
+          
+          // Update message status to sent
+          await prisma.whatsAppMessage.update({
+            where: { id: queuedMessage.id },
+            data: {
+              status: 'SENT',
+              sentAt: new Date(),
+              retryCount: queuedMessage.retryCount
+            }
+          })
+          
+        } catch (error) {
+          console.error(`❌ Error sending queued message ${queuedMessage.id}:`, error)
+          
+          // Retry logic
+          queuedMessage.retryCount++
+          if (queuedMessage.retryCount < queuedMessage.maxRetries) {
+            console.log(`🔄 Retrying message ${queuedMessage.id} (${queuedMessage.retryCount}/${queuedMessage.maxRetries})`)
+            this.messageQueue.push(queuedMessage)
+          } else {
+            console.log(`❌ Message ${queuedMessage.id} failed permanently after ${queuedMessage.retryCount} retries`)
+            // Mark as failed after max retries
+            await prisma.whatsAppMessage.update({
+              where: { id: queuedMessage.id },
+              data: {
+                status: 'FAILED',
+                error: JSON.stringify(error),
+                retryCount: queuedMessage.retryCount
+              }
+            })
+          }
+        }
+        
+        // Add delay between messages to avoid rate limiting
+        await this.delay(1000)
+      }
+      
+      console.log(`✅ Queue processing completed. Remaining: ${this.messageQueue.length}`)
+    } finally {
+      this.processingQueue = false
+    }
+  }
+
+  private formatPhoneNumber(phone: string): string {
+    // Remove all non-numeric characters
+    let cleaned = phone.replace(/\D/g, '')
+    
+    console.log(`🔧 Formatting phone: ${phone} -> ${cleaned}`)
+    
+    // Handle different Indonesian phone number formats
+    if (cleaned.startsWith('0')) {
+      // Replace leading 0 with 62
+      cleaned = '62' + cleaned.substring(1)
+    } else if (cleaned.startsWith('8')) {
+      // Add 62 for numbers starting with 8
+      cleaned = '62' + cleaned
+    } else if (!cleaned.startsWith('62')) {
+      // Add 62 if no country code
+      cleaned = '62' + cleaned
+    }
+    
+    const formatted = cleaned + '@s.whatsapp.net'
+    console.log(`✅ Final formatted phone: ${formatted}`)
+    
+    return formatted
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
+  }
+
+  private scheduleReconnect() {
+    if (this.isReconnecting || this.reconnectTimer) {
+      return
+    }
+
+    this.isReconnecting = true
+    const delay = Math.min(this.minReconnectDelay * Math.pow(2, this.reconnectAttempts), 30000)
+    
+    console.log(`🔄 Scheduling reconnect in ${delay}ms... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
+    
+    this.reconnectTimer = setTimeout(async () => {
+      this.isReconnecting = false
+      this.reconnectTimer = null
+      
+      if (this.reconnectAttempts < this.maxReconnectAttempts && !this.isConnected) {
+        try {
+          await this.initialize()
+        } catch (error) {
+          console.error('Scheduled reconnect failed:', error)
+        }
+      }
+    }, delay)
+  }
+
+  private async updateMessageStatus(messageId: string, status: 'PENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED', error?: string): Promise<void> {
+    try {
+      await prisma.whatsAppMessage.update({
+        where: { id: messageId },
+        data: {
+          status: status,
+          error: error,
+          updatedAt: new Date()
+        }
+      })
+    } catch (error) {
+      console.error('Failed to update message status:', error)
+    }
+  }
+
+  private extractPhoneNumber(jid: string): string {
+    return jid.split('@')[0]
+  }
+
+  async getConnectionStatus() {
+    try {
+      // Get status from database
+      const sessionRecord = await prisma.whatsAppSession.findFirst({
+        orderBy: { createdAt: 'desc' }
+      })
+
+      return {
+        isConnected: this.isConnected,
+        hasQRCode: !!this.qrCodeBase64,
+        qrCode: this.qrCodeBase64, // Return base64 image instead of raw string
+        lastConnected: sessionRecord?.lastSeen || null,
+        lastError: null, // We'll add error field to schema later if needed
+        sessionExists: sessionRecord?.isConnected || false
+      }
+    } catch (error) {
+      console.error('Error getting connection status:', error)
+      return {
+        isConnected: false,
+        hasQRCode: false,
+        qrCode: null,
+        lastConnected: null,
+        lastError: 'Failed to get status',
+        sessionExists: false
+      }
+    }
+  }
+
+  async getQRCode(): Promise<string | null> {
+    return this.qrCode
+  }
+
+  async getMessageStats(): Promise<{
+    total: number
+    sent: number
+    pending: number
+    failed: number
+    today: number
+  }> {
+    try {
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      
+      const [total, sent, pending, failed, todayCount] = await Promise.all([
+        prisma.whatsAppMessage.count(),
+        prisma.whatsAppMessage.count({ where: { status: 'SENT' } }),
+        prisma.whatsAppMessage.count({ where: { status: 'PENDING' } }),
+        prisma.whatsAppMessage.count({ where: { status: 'FAILED' } }),
+        prisma.whatsAppMessage.count({
+          where: {
+            createdAt: { gte: today }
+          }
+        })
+      ])
+      
+      return { total, sent, pending, failed, today: todayCount }
+    } catch (error) {
+      console.error('Error getting message stats:', error)
+      return { total: 0, sent: 0, pending: 0, failed: 0, today: 0 }
+    }
+  }
+
+  async retryFailedMessages(): Promise<number> {
+    try {
+      const failedMessages = await prisma.whatsAppMessage.findMany({
+        where: {
+          status: 'FAILED',
+          retryCount: { lt: 3 }
+        }
+      })
+      
+      for (const message of failedMessages) {
+        this.messageQueue.push({
+          id: message.id,
+          phone: message.phone,
+          message: message.message,
+          type: message.type,
+          incidentId: message.incidentId || undefined,
+          retryCount: message.retryCount,
+          maxRetries: message.maxRetries,
+          timestamp: new Date()
+        })
+      }
+      
+      return failedMessages.length
+    } catch (error) {
+      console.error('Error retrying failed messages:', error)
+      return 0
+    }
+  }
+
+  private async clearSession() {
+    try {
+      console.log('🗑️ Clearing WhatsApp session...')
+      
+      // Close current connection
+      if (this.socket) {
+        try {
+          await this.socket.end()
+        } catch (error) {
+          console.log('Error closing socket:', error)
+        }
+        this.socket = null
+      }
+
+      this.isConnected = false
+      this.qrCode = null
+      this.qrCodeBase64 = null
+      this.reconnectAttempts = 0
+
+      // Remove session files
+      if (fs.existsSync(this.sessionPath)) {
+        console.log('📁 Removing session files from:', this.sessionPath)
+        const files = fs.readdirSync(this.sessionPath)
+        for (const file of files) {
+          const filePath = path.join(this.sessionPath, file)
+          try {
+            if (fs.statSync(filePath).isDirectory()) {
+              fs.rmSync(filePath, { recursive: true, force: true })
+            } else {
+              fs.unlinkSync(filePath)
+            }
+            console.log(`🗑️ Removed: ${file}`)
+          } catch (error) {
+            console.log(`⚠️ Failed to remove ${file}:`, error)
+          }
+        }
+        console.log('✅ Session files cleared')
+      }
+
+      await this.updateSessionStatus(false, undefined, 'Session cleared')
+    } catch (error) {
+      console.error('Error clearing session:', error)
+    }
+  }
+
+  // Public method to clear session manually (for admin interface)
+  async clearSessionManually() {
+    await this.clearSession()
+    console.log('✅ Session cleared manually by admin')
+  }
+
+  async restartConnection() {
+    try {
+      console.log('🔄 Restarting WhatsApp connection...')
+      
+      // Close current connection
+      if (this.socket) {
+        this.socket.end()
+        this.socket = null
+      }
+      
+      // Wait a moment
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      
+      // Reinitialize
+      await this.initialize()
+    } catch (error) {
+      console.error('❌ Error restarting connection:', error)
       throw error
     }
   }

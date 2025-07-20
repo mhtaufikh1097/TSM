@@ -20,17 +20,19 @@ model User {
   reportedIncidents Incident[] @relation("ReportedBy")
   qcIncidents      Incident[] @relation("QCBy")
   pmIncidents      Incident[] @relation("PMBy")
+  notifications    Notification[] @relation("UserNotifications")
 
   @@map("users")
 }
 
 model Incident {
   id          String   @id @default(cuid())
+  ticketId    String   @unique
   title       String
   description String   @db.Text
   location    String
   occurredAt  DateTime
-  status      Status   @default(PENDING_QC)
+  status      Status   @default(OPEN)
   priority    Priority @default(MEDIUM)
   
   reporterId  String
@@ -51,6 +53,7 @@ model Incident {
 
   attachments IncidentAttachment[]
   logs        IncidentLog[]
+  whatsappMessages WhatsAppMessage[]
 
   @@map("incidents")
 }
@@ -93,12 +96,15 @@ enum Role {
 }
 
 enum Status {
+  OPEN
+  ON_HOLD
   PENDING_QC
-  APPROVED_QC
-  REJECTED_QC
+  QC_APPROVED
+  QC_REJECTED
   PENDING_PM
-  APPROVED_PM
-  REJECTED_PM
+  PM_APPROVED
+  PM_REJECTED
+  CLOSED
 }
 
 enum Priority {
@@ -106,4 +112,67 @@ enum Priority {
   MEDIUM
   HIGH
   CRITICAL
+}
+
+model WhatsAppMessage {
+  id          String   @id @default(cuid())
+  phone       String
+  message     String   @db.Text
+  status      MessageStatus @default(PENDING)
+  type        MessageType
+  retryCount  Int      @default(0)
+  maxRetries  Int      @default(3)
+  incidentId  String?
+  incident    Incident? @relation(fields: [incidentId], references: [id])
+  error       String?  @db.Text
+  sentAt      DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("whatsapp_messages")
+}
+
+model WhatsAppSession {
+  id          String   @id @default(cuid())
+  isConnected Boolean  @default(false)
+  qrCode      String?  @db.Text
+  lastSeen    DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("whatsapp_sessions")
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum MessageType {
+  INCIDENT_SUBMITTED
+  QC_APPROVED
+  QC_REJECTED
+  PM_APPROVED
+  PM_REJECTED
+  SYSTEM_NOTIFICATION
+  TEST
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation("UserNotifications", fields: [userId], references: [id])
+  type        String
+  title       String
+  message     String   @db.Text
+  incidentId  String?
+  data        Json?
+  read        Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("notifications")
 }

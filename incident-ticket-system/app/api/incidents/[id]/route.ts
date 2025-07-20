@@ -1,23 +1,59 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
+import { verifyIncidentToken } from "@/lib/tokens"
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await auth()
+    const { searchParams } = new URL(request.url)
+    const token = searchParams.get('token')
+    const role = searchParams.get('role')
     
-    if (!session?.user) {
+    // Check if using token authentication (from WhatsApp link)
+    let authenticatedUser = null
+    let isTokenAuth = false
+    
+    if (token && role) {
+      const tokenData = verifyIncidentToken(token)
+      if (!tokenData || tokenData.incidentId !== params.id || tokenData.role !== role) {
+        return NextResponse.json(
+          { error: "Invalid or expired token" },
+          { status: 401 }
+        )
+      }
+      isTokenAuth = true
+      // For token auth, we'll fetch user from token data
+      authenticatedUser = await prisma.user.findUnique({
+        where: { id: tokenData.userId }
+      })
+    } else {
+      // Check regular session authentication
+      const session = await auth()
+      
+      if (!session?.user) {
+        return NextResponse.json(
+          { error: "Unauthorized" },
+          { status: 401 }
+        )
+      }
+      authenticatedUser = session.user
+    }
+
+    if (!authenticatedUser) {
       return NextResponse.json(
-        { error: "Unauthorized" },
+        { error: "User not found" },
         { status: 401 }
       )
     }
 
+    // Await params before using
+    const { id } = await params
+
     const incident = await prisma.incident.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         reporter: {
           select: {
@@ -77,7 +113,7 @@ export async function GET(
     }
 
     // Check permissions
-    if (session.user.role === "REPORTER" && incident.reporterId !== session.user.id) {
+    if (!isTokenAuth && authenticatedUser.role === "REPORTER" && incident.reporterId !== authenticatedUser.id) {
       return NextResponse.json(
         { error: "Access denied" },
         { status: 403 }

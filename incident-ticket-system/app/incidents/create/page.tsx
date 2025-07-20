@@ -8,9 +8,7 @@ export default function CreateIncidentPage() {
   return (
     <DashboardLayout>
       <RoleGuard allowedRoles={["REPORTER", "ADMIN"]}>
-        <div className="min-h-screen bg-gray-50">
-          <IncidentForm />
-        </div>
+        <IncidentForm />
       </RoleGuard>
     </DashboardLayout>
   )

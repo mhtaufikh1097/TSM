@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { incidentFormSchema } from "@/lib/validations/incident"
+import { notificationService } from "@/services/notifications"
+import { notificationService as inAppNotificationService } from "@/services/notifications/notification-service"
+import { generateSequentialTicketId } from "@/lib/ticket-id"
 import { writeFile, mkdir } from "fs/promises"
 import path from "path"
 import { v4 as uuidv4 } from "uuid"
@@ -68,15 +71,29 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Generate ticket ID
+    const lastIncident = await prisma.incident.findFirst({
+      orderBy: { createdAt: 'desc' },
+      select: { ticketId: true }
+    })
+    
+    // Extract nomor urut dari ticketId terakhir
+    const lastTicketNumber = lastIncident?.ticketId 
+      ? parseInt(lastIncident.ticketId.split('-')[2]) || 0
+      : 0
+    
+    const ticketId = generateSequentialTicketId(lastTicketNumber)
+
     // Create incident in database
     const incident = await prisma.incident.create({
       data: {
+        ticketId,
         title: validatedData.title,
         description: validatedData.description,
         location: validatedData.location,
         occurredAt: new Date(validatedData.occurredAt),
         priority: validatedData.priority,
-        status: "PENDING_QC",
+        status: "OPEN", // Start dengan status OPEN
         reporterId: session.user.id,
         attachments: {
           create: uploadedFiles.map(file => ({
@@ -99,6 +116,18 @@ export async function POST(request: NextRequest) {
         attachments: true
       }
     })
+
+    // Send WhatsApp notification to QC users and create in-app notifications
+    try {
+      // WhatsApp notifications
+      await notificationService.notifyIncidentSubmitted(incident.id)
+      
+      // In-app notifications
+      await inAppNotificationService.createIncidentSubmittedNotifications(incident.id)
+    } catch (notificationError) {
+      console.error("Error sending notification:", notificationError)
+      // Don't fail the incident creation if notification fails
+    }
 
     return NextResponse.json({
       success: true,

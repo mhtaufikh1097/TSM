@@ -20,7 +20,8 @@ import {
   XCircle,
   AlertTriangle,
   FileText,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Pause
 } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
@@ -77,6 +78,14 @@ interface Incident {
 }
 
 const STATUS_CONFIG = {
+  OPEN: { label: "Open", color: "bg-blue-100 text-blue-800", icon: AlertTriangle },
+  ON_HOLD: { label: "On Hold", color: "bg-yellow-100 text-yellow-800", icon: Pause },
+  QC_APPROVED: { label: "QC Approved", color: "bg-green-100 text-green-800", icon: CheckCircle },
+  QC_REJECTED: { label: "QC Rejected", color: "bg-red-100 text-red-800", icon: XCircle },
+  PM_APPROVED: { label: "PM Approved", color: "bg-emerald-100 text-emerald-800", icon: CheckCircle },
+  PM_REJECTED: { label: "PM Rejected", color: "bg-red-100 text-red-800", icon: XCircle },
+  CLOSED: { label: "Closed", color: "bg-gray-100 text-gray-800", icon: CheckCircle },
+  // Legacy support (temporary)
   PENDING_QC: { label: "Pending QC", color: "bg-yellow-100 text-yellow-800", icon: Clock },
   APPROVED_QC: { label: "QC Approved", color: "bg-blue-100 text-blue-800", icon: CheckCircle },
   REJECTED_QC: { label: "QC Rejected", color: "bg-red-100 text-red-800", icon: XCircle },
@@ -175,8 +184,15 @@ export default function IncidentDetailPage() {
     )
   }
 
-  const statusConfig = STATUS_CONFIG[incident.status as keyof typeof STATUS_CONFIG]
-  const priorityConfig = PRIORITY_CONFIG[incident.priority as keyof typeof PRIORITY_CONFIG]
+  const statusConfig = STATUS_CONFIG[incident.status as keyof typeof STATUS_CONFIG] || { 
+    label: incident.status, 
+    color: "bg-gray-100 text-gray-800", 
+    icon: AlertTriangle 
+  }
+  const priorityConfig = PRIORITY_CONFIG[incident.priority as keyof typeof PRIORITY_CONFIG] || {
+    label: incident.priority,
+    color: "bg-gray-100 text-gray-800"
+  }
   const StatusIcon = statusConfig.icon
 
   return (

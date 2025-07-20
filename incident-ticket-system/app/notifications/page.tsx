@@ -1,64 +1,96 @@
 "use client"
 
-import Sidebar from "@/components/layouts/Sidebar"
-
+import { useEffect, useState } from "react"
+import { useSession } from "next-auth/react"
 import DashboardLayout from "@/components/layouts/DashboardLayout"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Bell, CheckCircle, AlertTriangle, Clock, Users } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Bell, CheckCircle, AlertTriangle, Clock, Users, MessageSquare, Trash2, ExternalLink } from "lucide-react"
+import { formatDistanceToNow } from "date-fns"
+import Link from "next/link"
+
+interface NotificationItem {
+  id: string
+  type: string
+  title: string
+  message: string
+  incidentId?: string
+  createdAt: string
+  read: boolean
+  data?: any
+}
 
 export default function NotificationsPage() {
-  const notifications = [
-    {
-      id: 1,
-      type: "incident",
-      title: "New incident reported",
-      message: "Equipment malfunction in Zone A requires immediate attention",
-      time: "2 minutes ago",
-      read: false,
-      icon: AlertTriangle,
-      iconColor: "text-red-600",
-      bgColor: "bg-red-50"
-    },
-    {
-      id: 2,
-      type: "approval",
-      title: "Incident approved",
-      message: "Incident #INC-001 has been approved by PM",
-      time: "1 hour ago",
-      read: false,
-      icon: CheckCircle,
-      iconColor: "text-green-600",
-      bgColor: "bg-green-50"
-    },
-    {
-      id: 3,
-      type: "review",
-      title: "QC review required",
-      message: "3 incidents are pending your review",
-      time: "3 hours ago",
-      read: true,
-      icon: Clock,
-      iconColor: "text-yellow-600",
-      bgColor: "bg-yellow-50"
-    },
-    {
-      id: 4,
-      type: "assignment",
-      title: "You've been assigned",
-      message: "New incident has been assigned to you for review",
-      time: "5 hours ago",
-      read: true,
-      icon: Users,
-      iconColor: "text-blue-600",
-      bgColor: "bg-blue-50"
+  const { data: session } = useSession()
+  const [notifications, setNotifications] = useState<NotificationItem[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const markAsRead = async (notificationId: string) => {
+    try {
+      const response = await fetch(`/api/notifications/${notificationId}/read`, {
+        method: 'POST'
+      })
+      if (response.ok) {
+        setNotifications(prev => 
+          prev.map(n => n.id === notificationId ? { ...n, read: true } : n)
+        )
+      }
+    } catch (error) {
+      console.error('Error marking notification as read:', error)
     }
-  ]
+  }
+
+  const deleteNotification = async (notificationId: string) => {
+    try {
+      const response = await fetch(`/api/notifications/${notificationId}`, {
+        method: 'DELETE'
+      })
+      if (response.ok) {
+        setNotifications(prev => prev.filter(n => n.id !== notificationId))
+      }
+    } catch (error) {
+      console.error('Error deleting notification:', error)
+    }
+  }
+
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      if (!session?.user) return
+      
+      try {
+        const response = await fetch('/api/notifications')
+        if (response.ok) {
+          const data = await response.json()
+          setNotifications(data.notifications || [])
+        } else {
+          console.error('Failed to fetch notifications')
+          setNotifications([])
+        }
+      } catch (error) {
+        console.error('Error fetching notifications:', error)
+        setNotifications([])
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchNotifications()
+  }, [session])
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600" />
+        </div>
+      </DashboardLayout>
+    )
+  }
 
   return (
-       <DashboardLayout>
+    <DashboardLayout>
       <div className="p-6 lg:p-8">
-        {/* Header */}
         <div className="mb-8">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -69,122 +101,86 @@ export default function NotificationsPage() {
                 Stay updated with the latest incident activities
               </p>
             </div>
-            <div className="mt-4 sm:mt-0">
-              <Button variant="outline">
-                Mark All as Read
-              </Button>
-            </div>
           </div>
         </div>
 
-        {/* Notification Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
-          <Card className="border-0 shadow-sm">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Unread</p>
-                  <p className="text-2xl font-bold text-red-600">2</p>
-                </div>
-                <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
-                  <Bell className="w-6 h-6 text-red-600" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-0 shadow-sm">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Today</p>
-                  <p className="text-2xl font-bold text-blue-600">4</p>
-                </div>
-                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <Clock className="w-6 h-6 text-blue-600" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-0 shadow-sm">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">This Week</p>
-                  <p className="text-2xl font-bold text-green-600">15</p>
-                </div>
-                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                  <CheckCircle className="w-6 h-6 text-green-600" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Notifications List */}
         <div className="space-y-4">
-          {notifications.map((notification) => {
-            const IconComponent = notification.icon
-            return (
+          {notifications.length === 0 ? (
+            <Card className="border-0 shadow-sm">
+              <CardContent className="p-12 text-center">
+                <Bell className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No notifications</h3>
+                <p className="text-gray-600">
+                  Notification system is ready. Notifications will appear here when incidents are created.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            notifications.map((notification) => (
               <Card 
                 key={notification.id} 
-                className={`border-0 shadow-sm transition-all duration-200 hover:shadow-md ${
-                  !notification.read ? 'ring-2 ring-blue-100' : ''
+                className={`border-0 shadow-sm transition-all hover:shadow-md ${
+                  !notification.read ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
                 }`}
               >
-                <CardContent className="p-6">
-                  <div className="flex items-start space-x-4">
-                    <div className={`w-12 h-12 ${notification.bgColor} rounded-lg flex items-center justify-center flex-shrink-0`}>
-                      <IconComponent className={`w-6 h-6 ${notification.iconColor}`} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <h3 className={`text-base font-semibold ${
-                            !notification.read ? 'text-gray-900' : 'text-gray-700'
-                          }`}>
-                            {notification.title}
-                            {!notification.read && (
-                              <span className="ml-2 w-2 h-2 bg-blue-600 rounded-full inline-block"></span>
-                            )}
-                          </h3>
-                          <p className="text-gray-600 text-sm mt-1">
-                            {notification.message}
-                          </p>
-                          <p className="text-gray-500 text-xs mt-2">
-                            {notification.time}
-                          </p>
-                        </div>
-                        <div className="flex space-x-2 ml-4">
-                          {!notification.read && (
-                            <Button variant="outline" size="sm">
-                              Mark as Read
-                            </Button>
-                          )}
-                          <Button variant="outline" size="sm">
-                            View
-                          </Button>
-                        </div>
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-medium text-gray-900">
+                          {notification.title}
+                        </h3>
+                        {!notification.read && (
+                          <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                        )}
                       </div>
+                      <p className="text-gray-600 text-sm mb-2">
+                        {notification.message}
+                      </p>
+                      <div className="flex items-center gap-3">
+                        <Badge className="bg-blue-100 text-blue-800">
+                          {notification.type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                        </Badge>
+                        <span className="text-xs text-gray-500">
+                          {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
+                        </span>
+                        {notification.incidentId && (
+                          <Link 
+                            href={`/incidents/${notification.incidentId}`}
+                            className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                          >
+                            View Incident <ExternalLink className="w-3 h-3" />
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 ml-4">
+                      {!notification.read && (
+                        <Button
+                          onClick={() => markAsRead(notification.id)}
+                          variant="ghost"
+                          size="sm"
+                          className="text-blue-600 hover:text-blue-700"
+                        >
+                          Mark Read
+                        </Button>
+                      )}
+                      <Button
+                        onClick={() => deleteNotification(notification.id)}
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
                     </div>
                   </div>
                 </CardContent>
               </Card>
-            )
-          })}
+            ))
+          )}
         </div>
-
-        {/* Empty State */}
-        {notifications.length === 0 && (
-          <div className="text-center py-12">
-            <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Bell className="w-12 h-12 text-gray-400" />
-            </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No notifications</h3>
-            <p className="text-gray-600">You're all caught up! Check back later for updates.</p>
-          </div>
-        )}
       </div>
     </DashboardLayout>
   )

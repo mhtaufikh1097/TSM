@@ -3,7 +3,7 @@
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { useEffect } from "react"
-import Sidebar from "./Sidebar"
+import ResponsiveSidebar from "./ResponsiveSidebar"
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -34,19 +34,5 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     return null
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar */}
-      <div className="fixed inset-y-0 left-0 w-64 z-30">
-        <Sidebar />
-      </div>
-
-      {/* Main content */}
-      <div className="flex-1 ml-64">
-        <main className="h-full">
-          {children}
-        </main>
-      </div>
-    </div>
-  )
+  return <ResponsiveSidebar>{children}</ResponsiveSidebar>
 }

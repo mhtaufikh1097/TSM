@@ -34,10 +34,10 @@ interface FilePreview {
 
 const DRAFT_KEY = "incident-form-draft"
 const PRIORITY_OPTIONS = [
-  { value: "LOW", label: "Low", color: "bg-blue-100 text-blue-800" },
-  { value: "MEDIUM", label: "Medium", color: "bg-yellow-100 text-yellow-800" },
-  { value: "HIGH", label: "High", color: "bg-orange-100 text-orange-800" },
-  { value: "CRITICAL", label: "Critical", color: "bg-red-100 text-red-800" },
+  { value: "LOW", label: "Low", color: "bg-gray-100 text-gray-800", dotColor: "bg-gray-500" },
+  { value: "MEDIUM", label: "Medium", color: "bg-blue-100 text-blue-800", dotColor: "bg-blue-500" },
+  { value: "HIGH", label: "High", color: "bg-orange-100 text-orange-800", dotColor: "bg-orange-500" },
+  { value: "CRITICAL", label: "Critical", color: "bg-red-100 text-red-800", dotColor: "bg-red-500" },
 ]
 
 export default function IncidentForm() {
@@ -212,15 +212,15 @@ export default function IncidentForm() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Report New Incident</h1>
+          <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">Report New Incident</h1>
           <p className="text-gray-600 mt-2">Provide detailed information about the incident</p>
         </div>
         
         {draftSaved && (
-          <div className="flex items-center text-green-600 text-sm">
+          <div className="flex items-center text-green-600 text-sm bg-green-50 px-3 py-2 rounded-lg">
             <Save className="w-4 h-4 mr-1" />
             Draft saved
           </div>
@@ -250,7 +250,10 @@ export default function IncidentForm() {
                 id="title"
                 {...register("title")}
                 placeholder="Brief description of the incident"
-                className={cn(errors.title && "border-red-500")}
+                className={cn(
+                  "bg-white border-gray-300 text-gray-900 placeholder:text-gray-500",
+                  errors.title && "border-red-500"
+                )}
               />
               {errors.title && (
                 <p className="text-red-500 text-sm mt-1">{errors.title.message}</p>
@@ -264,14 +267,17 @@ export default function IncidentForm() {
                 {...register("description")}
                 placeholder="Provide a detailed description of what happened, including any immediate actions taken..."
                 rows={6}
-                className={cn(errors.description && "border-red-500")}
+                className={cn(
+                  "bg-white border-gray-300 text-gray-900 placeholder:text-gray-500",
+                  errors.description && "border-red-500"
+                )}
               />
               {errors.description && (
                 <p className="text-red-500 text-sm mt-1">{errors.description.message}</p>
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="location" className="flex items-center">
                   <MapPin className="w-4 h-4 mr-1" />
@@ -281,7 +287,10 @@ export default function IncidentForm() {
                   id="location"
                   {...register("location")}
                   placeholder="Where did the incident occur?"
-                  className={cn(errors.location && "border-red-500")}
+                  className={cn(
+                    "bg-white border-gray-300 text-gray-900 placeholder:text-gray-500",
+                    errors.location && "border-red-500"
+                  )}
                 />
                 {errors.location && (
                   <p className="text-red-500 text-sm mt-1">{errors.location.message}</p>
@@ -297,7 +306,10 @@ export default function IncidentForm() {
                   id="occurredAt"
                   type="datetime-local"
                   {...register("occurredAt")}
-                  className={cn(errors.occurredAt && "border-red-500")}
+                  className={cn(
+                    "bg-white border-gray-300 text-gray-900",
+                    errors.occurredAt && "border-red-500"
+                  )}
                 />
                 {errors.occurredAt && (
                   <p className="text-red-500 text-sm mt-1">{errors.occurredAt.message}</p>
@@ -311,16 +323,23 @@ export default function IncidentForm() {
                 value={watchedValues.priority}
                 onValueChange={(value: string) => setValue("priority", value as "LOW" | "MEDIUM" | "HIGH" | "CRITICAL")}
               >
-                <SelectTrigger className={cn(errors.priority && "border-red-500")}>
+                <SelectTrigger className={cn(
+                  "bg-white border-gray-300 text-gray-900",
+                  errors.priority && "border-red-500"
+                )}>
                   <SelectValue placeholder="Select priority level" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="bg-white border border-gray-200 shadow-lg">
                   {PRIORITY_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
+                    <SelectItem 
+                      key={option.value} 
+                      value={option.value}
+                      className="text-gray-900 hover:bg-gray-50 focus:bg-gray-50"
+                    >
                       <div className="flex items-center">
                         <span className={cn(
                           "inline-block w-2 h-2 rounded-full mr-2",
-                          option.color.replace("text-", "bg-").split(" ")[0]
+                          option.dotColor
                         )} />
                         {option.label}
                       </div>
@@ -379,7 +398,7 @@ export default function IncidentForm() {
             {filePreviews.length > 0 && (
               <div className="space-y-3">
                 <Label>Uploaded Files ({filePreviews.length})</Label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                   {filePreviews.map(({ file, id, preview }) => (
                     <div key={id} className="flex items-center p-3 border rounded-lg">
                       <div className="flex-shrink-0 mr-3">
@@ -425,12 +444,13 @@ export default function IncidentForm() {
         </Card>
 
         {/* Actions */}
-        <div className="flex justify-between">
+        <div className="flex flex-col sm:flex-row justify-between gap-4">
           <Button
             type="button"
             variant="outline"
             onClick={saveDraft}
             disabled={isSubmitting}
+            className="order-2 sm:order-1"
           >
             <Save className="w-4 h-4 mr-2" />
             Save Draft
@@ -439,7 +459,7 @@ export default function IncidentForm() {
           <Button
             type="submit"
             disabled={isSubmitting}
-            className="min-w-[120px]"
+            className="min-w-[120px] order-1 sm:order-2"
           >
             {isSubmitting ? (
               <div className="flex items-center">
