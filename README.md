@@ -1,40 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/pages/api-reference/create-next-app).
+# Incident Ticket System
 
-## Getting Started
+Sistem manajemen tiket insiden dengan approval workflow dan notifikasi WhatsApp otomatis.
 
-First, run the development server:
+## Fitur Utama
 
+- 🎫 **Pelaporan Insiden** - Form input dengan upload bukti
+- 🔄 **Alur Approval** - QC → PM workflow
+- 📱 **Notifikasi WhatsApp** - Pesan otomatis untuk setiap aksi
+- 📊 **Dashboard & Laporan** - Tracking status dan export PDF
+- 🔐 **Role Management** - Pelapor, QC, PM, Admin
+
+## Tech Stack
+
+- **Frontend**: Next.js 14, TypeScript, Tailwind CSS
+- **Backend**: Next.js API Routes, Prisma ORM
+- **Database**: MySQL
+- **WhatsApp**: Baileys JS
+- **Authentication**: NextAuth.js
+
+## Setup
+
+1. Clone dan install dependencies:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Setup database:
+```bash
+cp .env.example .env
+# Edit .env dengan konfigurasi database
+npm run db:push
+```
 
-You can start editing the page by modifying `pages/index.tsx`. The page auto-updates as you edit the file.
+3. Jalankan development server:
+```bash
+npm run dev
+```
 
-[API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.ts`.
+4. Setup WhatsApp Bot:
+- QR code akan muncul di terminal
+- Scan dengan WhatsApp
 
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) instead of React pages.
+## Struktur Project
 
-This project uses [`next/font`](https://nextjs.org/docs/pages/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+incident-ticket-system/
+├── app/                    # Next.js App Router
+│   ├── api/               # API Routes
+│   ├── dashboard/         # Dashboard pages
+│   ├── incidents/         # Incident management
+│   └── reports/           # Reporting pages
+├── components/            # React components
+├── lib/                   # Utilities & configurations
+├── prisma/               # Database schema & migrations
+├── services/             # External services (WhatsApp, etc)
+├── types/                # TypeScript definitions
+└── utils/                # Helper functions
+```
 
-## Learn More
+## Pengembangan
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn-pages-router) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/pages/building-your-application/deploying) for more details.
+Lihat file `DEVELOPMENT_STRATEGY.md` untuk panduan pengembangan tahap demi tahap.

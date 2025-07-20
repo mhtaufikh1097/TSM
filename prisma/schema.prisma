@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -14,106 +8,171 @@ datasource db {
 }
 
 model User {
-  id          Int       @id @default(autoincrement())
-  phoneNumber String    @unique @map("phone_number")
-  pin         String
-  fullName    String?   @map("full_name")
-  email       String?
-  role        Role      @default(inspector)
-  upliner     User?     @relation("Upliner", fields: [uplinerId], references: [id])
-  uplinerId   Int?      @map("upliner_id")
-  uplines     User[]    @relation("Upliner")
-  inspections Inspection[] @relation("Inspector")
-  qcApproved  Inspection[] @relation("QcApprover")
-  pmApproved  Inspection[] @relation("PmApprover")
-  onHold      Inspection[] @relation("OnHoldBy")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  phone     String?
+  role      Role     @default(REPORTER)
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reportedIncidents Incident[] @relation("ReportedBy")
+  qcIncidents      Incident[] @relation("QCBy")
+  pmIncidents      Incident[] @relation("PMBy")
+  notifications    Notification[] @relation("UserNotifications")
+
+  @@map("users")
 }
 
-model VerificationCode {
-  id          Int      @id @default(autoincrement())
-  phoneNumber String   @map("phone_number")
-  code        String
-  expiresAt   DateTime @map("expires_at")
-  createdAt   DateTime @default(now()) @map("created_at")
+model Incident {
+  id          String   @id @default(cuid())
+  ticketId    String   @unique
+  title       String
+  description String   @db.Text
+  location    String
+  occurredAt  DateTime
+  status      Status   @default(OPEN)
+  priority    Priority @default(MEDIUM)
+  
+  reporterId  String
+  reporter    User     @relation("ReportedBy", fields: [reporterId], references: [id])
+  
+  qcId        String?
+  qc          User?    @relation("QCBy", fields: [qcId], references: [id])
+  qcAt        DateTime?
+  qcComment   String?
+  
+  pmId        String?
+  pm          User?    @relation("PMBy", fields: [pmId], references: [id])
+  pmAt        DateTime?
+  pmComment   String?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  attachments IncidentAttachment[]
+  logs        IncidentLog[]
+  whatsappMessages WhatsAppMessage[]
+
+  @@map("incidents")
 }
 
-model Inspection {
-  id             Int       @id @default(autoincrement())
-  inspectionType String    @map("inspection_type")
-  location       String
-  findings       String
-  actionRequired String    @map("action_required")
-  severity       Severity  @default(low)
-  status         Status    @default(pending)
-  inspector      User      @relation("Inspector", fields: [inspectorId], references: [id])
-  inspectorId    Int       @map("inspector_id")
-  qcApprovedBy   User?     @relation("QcApprover", fields: [qcApprovedById], references: [id])
-  qcApprovedById Int?      @map("qc_approved_by")
-  qcApprovedAt   DateTime? @map("qc_approved_at")
-  qcComment      String?   @map("qc_comment")
-  pmApprovedBy   User?     @relation("PmApprover", fields: [pmApprovedById], references: [id])
-  pmApprovedById Int?      @map("pm_approved_by")
-  pmApprovedAt   DateTime? @map("pm_approved_at")
-  pmComment      String?   @map("pm_comment")
-  onHoldBy       User?     @relation("OnHoldBy", fields: [onHoldById], references: [id])
-  onHoldById     Int?      @map("on_hold_by")
-  onHoldAt       DateTime? @map("on_hold_at")
-  onHoldReason   String?   @map("on_hold_reason")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
-  approvalTokens ApprovalToken[]
-  files          InspectionFile[]
+model IncidentAttachment {
+  id         String   @id @default(cuid())
+  filename   String
+  originalName String
+  mimeType   String
+  size       Int
+  path       String
+  
+  incidentId String
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  
+  createdAt  DateTime @default(now())
+
+  @@map("incident_attachments")
 }
 
-model InspectionFile {
-  id           Int      @id @default(autoincrement())
-  inspection   Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
-  inspectionId Int      @map("inspection_id")
-  filePath     String   @map("file_path")
-  fileType     FileType @map("file_type")
-  fileName     String   @map("file_name")
-  uploadedAt   DateTime @default(now()) @map("uploaded_at")
-}
+model IncidentLog {
+  id         String   @id @default(cuid())
+  action     String
+  oldStatus  Status?
+  newStatus  Status?
+  comment    String?
+  userId     String
+  incidentId String
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
 
-model ApprovalToken {
-  id           Int      @id @default(autoincrement())
-  token        String   @unique
-  inspectionId Int      @map("inspection_id")
-  role         Role
-  inspection   Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
-  isUsed       Boolean  @default(false) @map("is_used")
-  createdAt    DateTime @default(now()) @map("created_at")
-  expiresAt    DateTime @map("expires_at")
-
-  @@map("approval_tokens")
+  @@map("incident_logs")
 }
 
 enum Role {
-  inspector
-  qc
-  pm
-}
-
-enum Severity {
-  low
-  medium
-  high
-  critical
+  ADMIN
+  REPORTER
+  QC
+  PM
 }
 
 enum Status {
-  pending
-  on_hold
-  qc_approved
-  pm_approved
+  OPEN
+  ON_HOLD
+  PENDING_QC
+  QC_APPROVED
+  QC_REJECTED
+  PENDING_PM
+  PM_APPROVED
+  PM_REJECTED
+  CLOSED
 }
 
-enum FileType {
-  image
-  pdf
-  video
-  other
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
 }
 
+model WhatsAppMessage {
+  id          String   @id @default(cuid())
+  phone       String
+  message     String   @db.Text
+  status      MessageStatus @default(PENDING)
+  type        MessageType
+  retryCount  Int      @default(0)
+  maxRetries  Int      @default(3)
+  incidentId  String?
+  incident    Incident? @relation(fields: [incidentId], references: [id])
+  error       String?  @db.Text
+  sentAt      DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("whatsapp_messages")
+}
+
+model WhatsAppSession {
+  id          String   @id @default(cuid())
+  isConnected Boolean  @default(false)
+  qrCode      String?  @db.Text
+  lastSeen    DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("whatsapp_sessions")
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum MessageType {
+  INCIDENT_SUBMITTED
+  QC_APPROVED
+  QC_REJECTED
+  PM_APPROVED
+  PM_REJECTED
+  SYSTEM_NOTIFICATION
+  TEST
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation("UserNotifications", fields: [userId], references: [id])
+  type        String
+  title       String
+  message     String   @db.Text
+  incidentId  String?
+  data        Json?
+  read        Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("notifications")
+}
