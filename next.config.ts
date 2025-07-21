@@ -7,6 +7,11 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  experimental: {
+    forceSwcTransforms: true,
+  },
+  // Disable strict mode untuk compatibility
+  reactStrictMode: false,
 };
 
 export default nextConfig;

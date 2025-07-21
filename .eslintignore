@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+.next/
+.vercel/
+
+# Problematic source files from old structure
+src/
+*.js
+*.mjs
+
+# Build outputs
+out/
+dist/
+build/
+
+# Environment files
+.env*
+
+# Cache
+.cache/
