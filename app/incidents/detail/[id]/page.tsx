@@ -39,6 +39,7 @@ interface Incident {
   qcComment?: string
   pmAt?: string
   pmComment?: string
+  ticketId: string
   reporter: {
     id: string
     name: string
@@ -250,12 +251,12 @@ export default function IncidentDetailPage() {
 
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 text-gray-800">
             <Button onClick={() => router.back()} variant="outline" size="sm">
-              <ArrowLeft className="h-4 w-4 mr-2" />
+              <ArrowLeft className="h-4 w-4 mr-2 text-gray-800" />
               Back
             </Button>
-            <h1 className="text-2xl font-bold">Incident Details</h1>
+            <h1 className="text-2xl font-bold text-gray-800">Incident Details</h1>
           </div>
           <Badge className={getStatusColor(incident.status)}>
             {incident.status.replace('_', ' ')}
@@ -275,23 +276,23 @@ export default function IncidentDetailPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <label className="text-sm font-medium text-gray-600">Ticket ID</label>
-                  <p className="font-mono text-sm text-blue-600">{incident.id}</p>
+                  <label className="text-sm font-medium text-gray-800">Ticket ID</label>
+                  <p className="font-mono text-sm text-blue-600">{incident.ticketId}</p>
                 </div>
                 
                 <div>
-                  <label className="text-sm font-medium text-gray-600">Title</label>
+                  <label className="text-sm font-medium text-gray-800">Title</label>
                   <p className="font-medium">{incident.title}</p>
                 </div>
                 
                 <div>
-                  <label className="text-sm font-medium text-gray-600">Description</label>
+                  <label className="text-sm font-medium text-gray-800">Description</label>
                   <p className="text-gray-800 whitespace-pre-wrap">{incident.description}</p>
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm font-medium text-gray-600 flex items-center gap-1">
+                    <label className="text-sm font-medium text-gray-800 flex items-center gap-1">
                       <MapPin className="h-4 w-4" />
                       Location
                     </label>
@@ -299,7 +300,7 @@ export default function IncidentDetailPage() {
                   </div>
                   
                   <div>
-                    <label className="text-sm font-medium text-gray-600">Priority</label>
+                    <label className="text-sm font-medium text-gray-900">Priority</label>
                     <Badge className={getPriorityColor(incident.priority)}>
                       {incident.priority}
                     </Badge>
@@ -308,7 +309,7 @@ export default function IncidentDetailPage() {
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm font-medium text-gray-600 flex items-center gap-1">
+                    <label className="text-sm font-medium text-gray-800 flex items-center gap-1">
                       <Calendar className="h-4 w-4" />
                       Occurred At
                     </label>
@@ -316,7 +317,7 @@ export default function IncidentDetailPage() {
                   </div>
                   
                   <div>
-                    <label className="text-sm font-medium text-gray-600 flex items-center gap-1">
+                    <label className="text-sm font-medium text-gray-800 flex items-center gap-1">
                       <Clock className="h-4 w-4" />
                       Reported At
                     </label>
@@ -342,8 +343,8 @@ export default function IncidentDetailPage() {
                         <FileText className="h-8 w-8 text-blue-500" />
                         <div className="flex-1 min-w-0">
                           <p className="font-medium truncate">{attachment.originalName}</p>
-                          <p className="text-sm text-gray-500">{attachment.mimeType}</p>
-                          <p className="text-xs text-gray-400">{(attachment.size / 1024).toFixed(1)} KB</p>
+                          <p className="text-sm text-gray-700">{attachment.mimeType}</p>
+                          <p className="text-xs text-gray-600">{(attachment.size / 1024).toFixed(1)} KB</p>
                         </div>
                         <a href={`/api/files/${attachment.filename}`} target="_blank" rel="noopener noreferrer">
                           <Button size="sm" variant="outline">
@@ -424,15 +425,15 @@ export default function IncidentDetailPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <User className="h-5 w-5" />
+                  <User className="h-5 w-5 " />
                   Reporter
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
                   <p className="font-medium">{incident.reporter.name}</p>
-                  <p className="text-sm text-gray-600">{incident.reporter.email}</p>
-                  <Badge variant="outline">{incident.reporter.role}</Badge>
+                  <p className="text-sm text-gray-700">{incident.reporter.email}</p>
+                  <Badge variant="outline text-gray-700">{incident.reporter.role}</Badge>
                 </div>
               </CardContent>
             </Card>
@@ -453,8 +454,8 @@ export default function IncidentDetailPage() {
                       <CheckCircle className="h-4 w-4 text-green-500" />
                       <span className="font-medium text-sm">QC Review</span>
                     </div>
-                    <p className="text-sm text-gray-600 mb-1">{incident.qc.name}</p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-sm text-gray-700 mb-1">{incident.qc.name}</p>
+                    <p className="text-xs text-gray-600">
                       {format(new Date(incident.qcAt), 'PPpp')}
                     </p>
                     {incident.qcComment && (
@@ -472,8 +473,8 @@ export default function IncidentDetailPage() {
                       <CheckCircle className="h-4 w-4 text-blue-500" />
                       <span className="font-medium text-sm">PM Review</span>
                     </div>
-                    <p className="text-sm text-gray-600 mb-1">{incident.pm.name}</p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-sm text-gray-700 mb-1">{incident.pm.name}</p>
+                    <p className="text-xs text-gray-600">
                       {format(new Date(incident.pmAt), 'PPpp')}
                     </p>
                     {incident.pmComment && (
@@ -486,7 +487,7 @@ export default function IncidentDetailPage() {
 
                 {/* No reviews yet */}
                 {!incident.qc && !incident.pm && (
-                  <p className="text-sm text-gray-500 text-center py-4">
+                  <p className="text-sm text-gray-600 text-center py-4">
                     No reviews yet
                   </p>
                 )}

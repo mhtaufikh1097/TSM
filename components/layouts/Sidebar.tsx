@@ -30,7 +30,7 @@ interface SidebarProps {
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: Home, roles: ["ADMIN", "REPORTER", "QC", "PM"] },
-  { name: "Laporan", href: "/incidents", icon: AlertTriangle, roles: ["ADMIN", "REPORTER", "QC", "PM"] },
+  { name: "Inspeksi", href: "/incidents", icon: AlertTriangle, roles: ["ADMIN", "REPORTER", "QC", "PM"] },
   { name: "Analitik", href: "/reports", icon: BarChart3, roles: ["ADMIN", "PM"] },
   { name: "Notifikasi", href: "/notifications", icon: Bell, roles: ["ADMIN", "REPORTER", "QC", "PM"] },
   { name: "Pengguna", href: "/users", icon: Users, roles: ["ADMIN"] },
@@ -67,11 +67,16 @@ export default function Sidebar({ className = "", isMobile = false, isOpen = tru
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-4 border-b border-gray-200">
         <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-            <Shield className="w-5 h-5 text-white" />
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden">
+            <img 
+              src="/logo-wika.png" 
+              alt="WIKA Logo" 
+              className="w-8 h-8 object-contain"
+            />
           </div>
           <div className="hidden sm:block">
-            <h1 className="text-lg font-semibold text-gray-900">TSM System</h1>
+            <h1 className="text-lg font-semibold text-gray-900">WIKA TSM</h1>
+            <p className="text-xs text-gray-600">Inspection System</p>
           </div>
         </div>
         {isMobile && onToggle && (

@@ -171,34 +171,38 @@ export default function UserManagement() {
                 Tambah User
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-md bg-white border border-gray-200">
               <DialogHeader>
-                <DialogTitle>Tambah User Baru</DialogTitle>
+                <DialogTitle className="text-gray-900">Tambah User Baru</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleAddUser} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="name">Nama Lengkap *</Label>
+                  <Label htmlFor="name" className="text-gray-700 font-medium">Nama Lengkap *</Label>
                   <Input
                     id="name"
                     value={newUser.name}
                     onChange={(e) => setNewUser({...newUser, name: e.target.value})}
                     required
+                    className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-500"
+                    placeholder="Masukkan nama lengkap"
                   />
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email *</Label>
+                  <Label htmlFor="email" className="text-gray-700 font-medium">Email *</Label>
                   <Input
                     id="email"
                     type="email"
                     value={newUser.email}
                     onChange={(e) => setNewUser({...newUser, email: e.target.value})}
                     required
+                    className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-500"
+                    placeholder="user@wika.co.id"
                   />
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="password">Password *</Label>
+                  <Label htmlFor="password" className="text-gray-700 font-medium">Password *</Label>
                   <Input
                     id="password"
                     type="password"
@@ -206,38 +210,42 @@ export default function UserManagement() {
                     onChange={(e) => setNewUser({...newUser, password: e.target.value})}
                     required
                     minLength={6}
+                    className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-500"
+                    placeholder="Minimal 6 karakter"
                   />
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="role">Role *</Label>
+                  <Label htmlFor="role" className="text-gray-700 font-medium">Role *</Label>
                   <Select value={newUser.role} onValueChange={(value) => setNewUser({...newUser, role: value})}>
-                    <SelectTrigger>
-                      <SelectValue />
+                    <SelectTrigger className="bg-white border-gray-300 text-gray-900">
+                      <SelectValue placeholder="Pilih role" />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="REPORTER">Reporter</SelectItem>
-                      <SelectItem value="QC">QC</SelectItem>
-                      <SelectItem value="PM">PM</SelectItem>
-                      <SelectItem value="ADMIN">Admin</SelectItem>
+                    <SelectContent className="bg-white border border-gray-200 shadow-lg">
+                      <SelectItem value="REPORTER" className="text-gray-900 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer">Reporter</SelectItem>
+                      <SelectItem value="QC" className="text-gray-900 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer">QC</SelectItem>
+                      <SelectItem value="PM" className="text-gray-900 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer">PM</SelectItem>
+                      <SelectItem value="ADMIN" className="text-gray-900 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer">Admin</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="phone">No. Telepon</Label>
+                  <Label htmlFor="phone" className="text-gray-700 font-medium">No. Telepon</Label>
                   <Input
                     id="phone"
                     value={newUser.phone}
                     onChange={(e) => setNewUser({...newUser, phone: e.target.value})}
+                    className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-500"
+                    placeholder="+62812XXXXXXXX"
                   />
                 </div>
                 
                 <div className="flex gap-2 pt-4">
-                  <Button type="submit" disabled={submitting} className="flex-1">
+                  <Button type="submit" disabled={submitting} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white">
                     {submitting ? "Menambahkan..." : "Tambah User"}
                   </Button>
-                  <Button type="button" variant="outline" onClick={() => setShowAddDialog(false)}>
+                  <Button type="button" variant="outline" onClick={() => setShowAddDialog(false)} className="border-gray-300 text-gray-700 hover:bg-gray-50">
                     Batal
                   </Button>
                 </div>

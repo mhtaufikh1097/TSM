@@ -2,10 +2,13 @@
 
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
+import Link from "next/link"
+import Image from "next/image"
 import DashboardLayout from "@/components/layouts/DashboardLayout"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import RoleGuard from "@/components/auth/RoleGuard"
 import { 
   AlertTriangle, 
@@ -15,18 +18,63 @@ import {
   Plus,
   BarChart3,
   Users,
-  Activity
+  Activity,
+  Eye,
+  TrendingDown
 } from "lucide-react"
+import { format } from "date-fns"
+
+interface DashboardStats {
+  totalInspections: number
+  pendingQC: number
+  pendingPM: number
+  resolved: number
+  myReports?: number
+  monthlyGrowth: number
+  recentInspections: {
+    id: string
+    title: string
+    ticketId: string
+    status: string
+    priority: string
+    createdAt: string
+    reporter: {
+      name: string
+    }
+  }[]
+}
 
 export default function DashboardPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
+  const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/auth/login")
     }
   }, [status, router])
+
+  useEffect(() => {
+    if (session) {
+      fetchDashboardStats()
+    }
+  }, [session])
+
+  const fetchDashboardStats = async () => {
+    try {
+      const response = await fetch('/api/dashboard/stats')
+      if (response.ok) {
+        const data = await response.json()
+        setStats(data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch dashboard stats:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   if (status === "loading") {
     return (
@@ -45,23 +93,66 @@ export default function DashboardPage() {
 
   const getGreeting = () => {
     const hour = new Date().getHours()
-    if (hour < 12) return "Good Morning"
-    if (hour < 17) return "Good Afternoon"
-    return "Good Evening"
+    if (hour < 12) return "Selamat Pagi"
+    if (hour < 17) return "Selamat Siang"
+    return "Selamat Sore"
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'OPEN':
+        return 'bg-blue-100 text-blue-800'
+      case 'QC_APPROVED':
+        return 'bg-green-100 text-green-800'
+      case 'QC_REJECTED':
+        return 'bg-red-100 text-red-800'
+      case 'PM_APPROVED':
+        return 'bg-green-100 text-green-800'
+      case 'PM_REJECTED':
+        return 'bg-red-100 text-red-800'
+      case 'ON_HOLD':
+        return 'bg-yellow-100 text-yellow-800'
+      default:
+        return 'bg-gray-100 text-gray-800'
+    }
+  }
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case 'HIGH':
+        return 'bg-red-100 text-red-800'
+      case 'MEDIUM':
+        return 'bg-yellow-100 text-yellow-800'
+      case 'LOW':
+        return 'bg-green-100 text-green-800'
+      default:
+        return 'bg-gray-100 text-gray-800'
+    }
   }
 
   return (
     <DashboardLayout>
       <div className="p-6">
-        {/* Header */}
+        {/* Header with WIKA Logo */}
         <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">
-              {getGreeting()}, {session.user.name}! 👋
-            </h1>
-            <p className="text-gray-600 mt-1">
-              Here's what's happening with your incidents today.
-            </p>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <Image
+                src="/Logo-WIKA.png"
+                alt="WIKA Logo"
+                width={60}
+                height={60}
+                className="object-contain"
+              />
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900">
+                  {getGreeting()}, {session.user.name}! 👋
+                </h1>
+                <p className="text-gray-600 mt-1">
+                  PT WIJAYA KARYA (Persero) Tbk - Inspection Management System
+                </p>
+              </div>
+            </div>
           </div>
           
           <RoleGuard allowedRoles={["REPORTER", "ADMIN"]}>
@@ -70,82 +161,107 @@ export default function DashboardPage() {
               onClick={() => router.push("/incidents/create")}
             >
               <Plus className="w-4 h-4 mr-2" />
-              Report Incident
+              Report Inspection
             </Button>
           </RoleGuard>
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {/* Total Tickets */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">
-                Total Tickets
-              </CardTitle>
-              <AlertTriangle className="h-4 w-4 text-blue-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-gray-900">45</div>
-              <p className="text-xs text-green-600 flex items-center mt-1">
-                <TrendingUp className="w-3 h-3 mr-1" />
-                +15 this month
-              </p>
-            </CardContent>
-          </Card>
-
-          {/* QC Review */}
-          <RoleGuard allowedRoles={["QC", "ADMIN"]}>
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            {[...Array(4)].map((_, i) => (
+              <Card key={i}>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <div className="h-4 w-20 bg-gray-200 rounded animate-pulse"></div>
+                  <div className="h-4 w-4 bg-gray-200 rounded animate-pulse"></div>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-8 w-12 bg-gray-200 rounded animate-pulse mb-2"></div>
+                  <div className="h-4 w-24 bg-gray-200 rounded animate-pulse"></div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            {/* Total Inspections */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-gray-600">
-                  Pending QC
+                  Total Inspections
                 </CardTitle>
-                <Clock className="h-4 w-4 text-yellow-600" />
+                <AlertTriangle className="h-4 w-4 text-blue-600" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-gray-900">12</div>
-                <p className="text-xs text-gray-600 mt-1">
-                  Requires your review
+                <div className="text-2xl font-bold text-gray-900">{stats?.totalInspections || 0}</div>
+                <p className={`text-xs flex items-center mt-1 ${
+                  (stats?.monthlyGrowth || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                }`}>
+                  {(stats?.monthlyGrowth || 0) >= 0 ? (
+                    <TrendingUp className="w-3 h-3 mr-1" />
+                  ) : (
+                    <TrendingDown className="w-3 h-3 mr-1" />
+                  )}
+                  {(stats?.monthlyGrowth || 0) > 0 ? '+' : ''}{stats?.monthlyGrowth || 0} this month
                 </p>
               </CardContent>
             </Card>
-          </RoleGuard>
 
-          {/* PM Approval */}
-          <RoleGuard allowedRoles={["PM", "ADMIN"]}>
+            {/* QC Review */}
+            <RoleGuard allowedRoles={["QC", "ADMIN"]}>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-600">
+                    Pending QC
+                  </CardTitle>
+                  <Clock className="h-4 w-4 text-yellow-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-gray-900">{stats?.pendingQC || 0}</div>
+                  <p className="text-xs text-gray-600 mt-1">
+                    Requires your review
+                  </p>
+                </CardContent>
+              </Card>
+            </RoleGuard>
+
+            {/* PM Approval */}
+            <RoleGuard allowedRoles={["PM", "ADMIN"]}>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-600">
+                    Pending PM
+                  </CardTitle>
+                  <Clock className="h-4 w-4 text-orange-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-gray-900">{stats?.pendingPM || 0}</div>
+                  <p className="text-xs text-gray-600 mt-1">
+                    Awaiting final approval
+                  </p>
+                </CardContent>
+              </Card>
+            </RoleGuard>
+
+            {/* Resolved or My Reports */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-gray-600">
-                  Pending PM
+                  {session.user.role === 'REPORTER' ? 'My Reports' : 'Resolved'}
                 </CardTitle>
-                <Clock className="h-4 w-4 text-orange-600" />
+                <CheckCircle className="h-4 w-4 text-green-600" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-gray-900">8</div>
+                <div className="text-2xl font-bold text-gray-900">
+                  {session.user.role === 'REPORTER' ? (stats?.myReports || 0) : (stats?.resolved || 0)}
+                </div>
                 <p className="text-xs text-gray-600 mt-1">
-                  Awaiting final approval
+                  {session.user.role === 'REPORTER' ? 'Total reports submitted' : 'Successfully completed'}
                 </p>
               </CardContent>
             </Card>
-          </RoleGuard>
-
-          {/* Resolved */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">
-                Resolved
-              </CardTitle>
-              <CheckCircle className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-gray-900">25</div>
-              <p className="text-xs text-gray-600 mt-1">
-                Successfully completed
-              </p>
-            </CardContent>
-          </Card>
-        </div>
+          </div>
+        )}
 
         {/* Quick Actions & Recent Activity */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -205,40 +321,78 @@ export default function DashboardPage() {
           {/* Recent Activity */}
           <Card className="lg:col-span-2">
             <CardHeader>
-              <CardTitle>Recent Activity</CardTitle>
+              <CardTitle>Recent Inspections</CardTitle>
+              <p className="text-sm text-gray-600">Latest inspection reports and activities</p>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">Incident #INC-001 resolved</p>
-                    <p className="text-xs text-gray-500">2 hours ago</p>
-                  </div>
+              {loading ? (
+                <div className="space-y-4">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg animate-pulse">
+                      <div className="w-2 h-2 bg-gray-300 rounded-full"></div>
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 w-48 bg-gray-300 rounded"></div>
+                        <div className="h-3 w-24 bg-gray-300 rounded"></div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                
-                <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                  <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">New incident reported by John Doe</p>
-                    <p className="text-xs text-gray-500">4 hours ago</p>
-                  </div>
-                </div>
+              ) : stats?.recentInspections && stats.recentInspections.length > 0 ? (
+                <div className="space-y-4">
+                  {stats.recentInspections.slice(0, 3).map((inspection) => (
+                    <div key={inspection.id} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
+                      <div className={`w-2 h-2 rounded-full ${
+                        inspection.status === 'RESOLVED' ? 'bg-green-500' :
+                        inspection.status === 'QC_REVIEW' ? 'bg-yellow-500' :
+                        inspection.status === 'PM_APPROVAL' ? 'bg-orange-500' :
+                        inspection.status === 'IN_PROGRESS' ? 'bg-blue-500' :
+                        'bg-red-500'
+                      }`}></div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium">{inspection.title}</p>
+                        <div className="flex items-center space-x-2 mt-1">
+                          <p className="text-xs text-gray-500">
+                            ID: {inspection.ticketId}
+                          </p>
+                          <span className="text-xs text-gray-400">•</span>
+                          <p className="text-xs text-gray-500">
+                            {new Date(inspection.createdAt).toLocaleDateString('id-ID')}
+                          </p>
+                          <span className="text-xs text-gray-400">•</span>
+                          <p className="text-xs text-gray-500">
+                            by {inspection.reporter.name}
+                          </p>
+                        </div>
+                      </div>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        getStatusColor(inspection.status)
+                      }`}>
+                        {inspection.status}
+                      </span>
+                    </div>
+                  ))}
 
-                <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">QC review completed for #INC-003</p>
-                    <p className="text-xs text-gray-500">6 hours ago</p>
+                  <div className="text-center pt-4">
+                    <Link href="/incidents">
+                      <Button variant="outline" size="sm">
+                        View All Inspections
+                      </Button>
+                    </Link>
                   </div>
                 </div>
-
-                <div className="text-center pt-4">
-                  <Button variant="outline" size="sm">
-                    View All Activity
-                  </Button>
+              ) : (
+                <div className="text-center py-8">
+                  <AlertTriangle className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-500">No recent inspections found</p>
+                  <div className="mt-4">
+                    <Link href="/incidents/create">
+                      <Button variant="outline" size="sm">
+                        Create New Inspection
+                      </Button>
+                    </Link>
+                  </div>
                 </div>
-              </div>
+              )}
             </CardContent>
           </Card>
         </div>

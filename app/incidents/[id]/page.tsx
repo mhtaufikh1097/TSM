@@ -234,7 +234,7 @@ export default function IncidentPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Incident Review</h1>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-gray-500">
                 {role === 'qc' ? 'Quality Control Review' : role === 'pm' ? 'Project Manager Review' : 'Incident Details'}
               </p>
             </div>

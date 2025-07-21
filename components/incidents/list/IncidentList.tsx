@@ -127,14 +127,35 @@ export default function IncidentList() {
       })
 
       const response = await fetch(`/api/incidents?${params}`)
-      const data = await response.json()
-
+      
       if (!response.ok) {
-        throw new Error(data.error || "Failed to fetch incidents")
+        // Try to get error message from response, fallback to status text
+        let errorMessage = "Failed to fetch incidents"
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.error || errorData.message || errorMessage
+        } catch {
+          errorMessage = `HTTP ${response.status}: ${response.statusText}`
+        }
+        throw new Error(errorMessage)
       }
 
-      setIncidents(data.incidents)
-      setPagination(data.pagination)
+      const data = await response.json()
+      
+      // Validate response data structure
+      if (!data || typeof data !== 'object') {
+        throw new Error("Invalid response format")
+      }
+
+      setIncidents(data.incidents || [])
+      setPagination(data.pagination || {
+        page: 1,
+        limit: 10,
+        total: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPreviousPage: false
+      })
 
     } catch (error) {
       console.error("Error fetching incidents:", error)
@@ -183,7 +204,7 @@ export default function IncidentList() {
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <RefreshCw className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-4" />
-          <p className="text-gray-600">Loading incidents...</p>
+          <p className="text-gray-700">Loading incidents...</p>
         </div>
       </div>
     )
@@ -197,7 +218,7 @@ export default function IncidentList() {
           <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">
             Incident Reports
           </h1>
-          <p className="mt-1 text-gray-600">
+          <p className="mt-1 text-gray-700">
             Manage and track all incident reports
           </p>
         </div>
@@ -245,12 +266,12 @@ export default function IncidentList() {
                 Search
               </label>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 w-4 h-4" />
                 <Input
                   placeholder="Search incidents..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="pl-10 bg-white border-gray-300 text-gray-900 placeholder:text-gray-500"
+                  className="pl-10 bg-white border-gray-300 text-gray-900 placeholder:text-gray-600"
                 />
               </div>
             </div>
@@ -318,7 +339,7 @@ export default function IncidentList() {
             <Button variant="outline" onClick={clearFilters}>
               Clear Filters
             </Button>
-            <div className="text-sm text-gray-600">
+            <div className="text-sm text-gray-700">
               {pagination.total} incident{pagination.total !== 1 ? "s" : ""} found
             </div>
           </div>
@@ -346,22 +367,22 @@ export default function IncidentList() {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                       Incident
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                       Priority
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                       Reporter
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                       Date
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
@@ -374,7 +395,7 @@ export default function IncidentList() {
                           <div className="font-medium text-gray-900 truncate">
                             {incident.title}
                           </div>
-                          <div className="flex items-center text-sm text-gray-500 mt-1">
+                          <div className="flex items-center text-sm text-gray-600 mt-1">
                             <MapPin className="w-3 h-3 mr-1" />
                             {incident.location}
                           </div>
@@ -397,12 +418,12 @@ export default function IncidentList() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <User className="w-4 h-4 text-gray-400 mr-2" />
+                          <User className="w-4 h-4 text-gray-500 mr-2" />
                           <div>
                             <div className="text-sm font-medium text-gray-900">
                               {incident.reporter.name}
                             </div>
-                            <div className="text-xs text-gray-500">
+                            <div className="text-xs text-gray-600">
                               {incident.reporter.email}
                             </div>
                           </div>
@@ -413,7 +434,7 @@ export default function IncidentList() {
                           <Clock className="w-3 h-3 mr-1" />
                           {format(new Date(incident.occurredAt), "MMM dd, yyyy")}
                         </div>
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-gray-600">
                           {format(new Date(incident.createdAt), "hh:mm a")}
                         </div>
                       </td>
@@ -460,7 +481,7 @@ export default function IncidentList() {
                         <h3 className="text-sm font-medium text-gray-900 truncate">
                           {incident.title}
                         </h3>
-                        <div className="flex items-center text-xs text-gray-500 mt-1">
+                        <div className="flex items-center text-xs text-gray-600 mt-1">
                           <MapPin className="w-3 h-3 mr-1" />
                           {incident.location}
                         </div>
@@ -486,7 +507,7 @@ export default function IncidentList() {
                     </div>
 
                     {/* Reporter and Date */}
-                    <div className="flex items-center justify-between text-xs text-gray-500">
+                    <div className="flex items-center justify-between text-xs text-gray-600">
                       <div className="flex items-center">
                         <User className="w-3 h-3 mr-1" />
                         {incident.reporter.name}
@@ -511,9 +532,9 @@ export default function IncidentList() {
 
           {incidents.length === 0 && !loading && (
             <div className="text-center py-12">
-              <AlertTriangle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <AlertTriangle className="w-12 h-12 text-gray-500 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">No incidents found</h3>
-              <p className="text-gray-600 mb-4">
+              <p className="text-gray-700 mb-4">
                 {search || status || priority || startDate || endDate
                   ? "Try adjusting your search criteria or filters."
                   : "No incidents have been reported yet."}
@@ -604,7 +625,7 @@ export default function IncidentList() {
                   <ChevronRight className="w-4 h-4 ml-1" />
                 </Button>
               </div>
-              <div className="text-xs text-gray-500 text-center">
+              <div className="text-xs text-gray-600 text-center">
                 {pagination.total} total results
               </div>
             </div>

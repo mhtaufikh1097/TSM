@@ -124,6 +124,7 @@ interface Incident {
   qcComment?: string
   pmAt?: string
   pmComment?: string
+  ticketId: string
   reporter: {
     id: string
     name: string
@@ -428,7 +429,7 @@ export default function IncidentDetailPage() {
               <CardContent className="space-y-4">
                 <div>
                   <label className="text-sm font-medium text-gray-600">Ticket ID</label>
-                  <p className="font-mono text-sm text-blue-600">{incident.id}</p>
+                  <p className="font-mono text-sm text-blue-600">{incident.ticketId}</p>
                 </div>
                 
                 <div>

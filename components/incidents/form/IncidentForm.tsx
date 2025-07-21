@@ -215,8 +215,8 @@ export default function IncidentForm() {
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">Report New Incident</h1>
-          <p className="text-gray-600 mt-2">Provide detailed information about the incident</p>
+          <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">Report New Inspection</h1>
+          <p className="text-gray-700 mt-2">Provide detailed information about the inspection findings</p>
         </div>
         
         {draftSaved && (
@@ -245,11 +245,11 @@ export default function IncidentForm() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label htmlFor="title">Incident Title *</Label>
+              <Label htmlFor="title">Inspection Title *</Label>
               <Input
                 id="title"
                 {...register("title")}
-                placeholder="Brief description of the incident"
+                placeholder="Brief description of the inspection"
                 className={cn(
                   "bg-white border-gray-300 text-gray-900 placeholder:text-gray-500",
                   errors.title && "border-red-500"
@@ -265,7 +265,7 @@ export default function IncidentForm() {
               <Textarea
                 id="description"
                 {...register("description")}
-                placeholder="Provide a detailed description of what happened, including any immediate actions taken..."
+                placeholder="Provide a detailed description of what was inspected, including any findings and immediate actions taken..."
                 rows={6}
                 className={cn(
                   "bg-white border-gray-300 text-gray-900 placeholder:text-gray-500",
@@ -286,7 +286,7 @@ export default function IncidentForm() {
                 <Input
                   id="location"
                   {...register("location")}
-                  placeholder="Where did the incident occur?"
+                  placeholder="Where was the inspection conducted?"
                   className={cn(
                     "bg-white border-gray-300 text-gray-900 placeholder:text-gray-500",
                     errors.location && "border-red-500"
@@ -300,7 +300,7 @@ export default function IncidentForm() {
               <div>
                 <Label htmlFor="occurredAt" className="flex items-center">
                   <Clock className="w-4 h-4 mr-1" />
-                  Date & Time *
+                  Inspection Date & Time *
                 </Label>
                 <Input
                   id="occurredAt"

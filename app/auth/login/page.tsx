@@ -56,7 +56,7 @@ export default function LoginPage() {
             Welcome Back
           </h1>
           <p className="text-gray-600">
-            Sign in to access your incident management dashboard
+            Sign in to access your inspection management dashboard
           </p>
         </div>
 
