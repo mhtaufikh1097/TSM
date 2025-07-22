@@ -3,7 +3,8 @@ import { Boom } from '@hapi/boom'
 import qrcode from 'qrcode-terminal'
 import QRCode from 'qrcode'
 import { prisma } from '@/lib/db'
-import { useDatabaseAuthState, clearDatabaseAuthState } from './database-auth-state'
+import { useGistAuthState, clearGistAuthState } from './gist-auth-state'
+import { Incident } from '@prisma/client'
 
 interface QueuedMessage {
   id: string
@@ -99,9 +100,9 @@ class WhatsAppService {
         this.socket = null
       }
 
-      // Use database-based auth state instead of filesystem
-      console.log('🔌 Initializing WhatsApp connection with database auth state...')
-      const { state, saveCreds } = await useDatabaseAuthState()
+      // Use GitHub Gist-based auth state instead of database
+      console.log('🔌 Initializing WhatsApp connection with GitHub Gist auth state...')
+      const { state, saveCreds } = await useGistAuthState()
 
         this.socket = makeWASocket({
         auth: state,
@@ -134,6 +135,20 @@ class WhatsAppService {
       console.error('WhatsApp initialization error:', error)
       this.isInitializing = false
       this.reconnectAttempts++
+      
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      
+      // Handle specific initialization errors
+      if (errorMessage.includes('crypto') || 
+          errorMessage.includes('cipher') || 
+          errorMessage.includes('Buffer') || 
+          errorMessage.includes('TypedArray') ||
+          errorMessage.includes('validation')) {
+        console.log('🔧 Crypto/Buffer error during initialization - clearing session')
+        await this.clearSession()
+        this.reconnectAttempts = 0 // Reset attempts after clearing
+      }
+      
       await this.updateSessionStatus(false, undefined, JSON.stringify(error))
       
       // Auto retry with exponential backoff
@@ -145,22 +160,29 @@ class WhatsAppService {
 
   private async handleConnectionUpdate(update: Partial<ConnectionState & { qr?: string; lastDisconnect?: any }>) {
     try {
-      console.log('🔄 Connection update:', JSON.stringify(update, null, 2))
+      const { connection, lastDisconnect, qr } = update
       
-      this.connectionState = update.connection || this.connectionState
+      console.log('🔄 WhatsApp connection update:', {
+        connection,
+        lastDisconnect: lastDisconnect?.error?.output?.statusCode,
+        hasQR: !!qr,
+        errorMessage: lastDisconnect?.error?.message
+      })
+      
+      this.connectionState = connection || this.connectionState
 
-      if (update.qr) {
+      if (qr) {
         console.log('📱 QR Code received, generating...')
         try {
-          this.qrCode = update.qr
-          this.qrCodeBase64 = await QRCode.toDataURL(update.qr)
+          this.qrCode = qr
+          this.qrCodeBase64 = await QRCode.toDataURL(qr)
           console.log('✅ QR Code generated successfully')
           console.log('⏰ QR Code akan expired dalam 2 menit, silakan scan segera')
           await this.updateSessionStatus(false, this.qrCodeBase64, undefined)
           
           // Set a timer to handle QR code expiry with better feedback
           setTimeout(() => {
-            if (!this.isConnected && this.qrCode === update.qr) {
+            if (!this.isConnected && this.qrCode === qr) {
               console.log('⏰ QR Code expired setelah 2 menit, menunggu QR code baru...')
               this.qrCode = null
               this.qrCodeBase64 = null
@@ -176,105 +198,148 @@ class WhatsAppService {
       }
 
       // Handle connection states
-      switch (update.connection) {
-        case 'open':
-          console.log('✅ WhatsApp connection established successfully!')
-          this.isConnected = true
-          this.reconnectAttempts = 0 // Reset attempts on successful connection
-          this.minReconnectDelay = 15000 // Reset to normal delay after successful connection
-          this.qrCode = null
-          this.qrCodeBase64 = null
-          this.lastDisconnectTime = 0
-          // Clear any pending reconnect timer
-          if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer)
-            this.reconnectTimer = null
-          }
-          this.isReconnecting = false
-          await this.updateSessionStatus(true, undefined, undefined)
-          await this.processMessageQueue()
-          break
+      if (connection === 'close') {
+        const statusCode = lastDisconnect?.error?.output?.statusCode
+        const errorMessage = lastDisconnect?.error?.message || ''
+        
+        console.log('❌ WhatsApp connection closed:', {
+          statusCode,
+          errorMessage,
+          reason: lastDisconnect?.error?.output?.payload?.error
+        })
+        
+        this.isConnected = false
+        this.lastDisconnectTime = Date.now()
+        
+        // Handle different disconnect reasons
+        let shouldReconnect = false
+        let clearSession = false
+        
+        switch (statusCode) {
+          case DisconnectReason.badSession:
+            console.log('🔒 WhatsApp: Bad session, clearing credentials')
+            clearSession = true
+            shouldReconnect = false
+            break
+            
+          case DisconnectReason.connectionClosed:
+            console.log('🔌 WhatsApp: Connection closed, will try to reconnect')
+            shouldReconnect = true
+            break
+            
+          case DisconnectReason.connectionLost:
+            console.log('📡 WhatsApp: Connection lost, will try to reconnect')
+            shouldReconnect = true
+            break
+            
+          case DisconnectReason.connectionReplaced:
+            console.log('🔄 WhatsApp: Connection replaced, stopping this instance')
+            shouldReconnect = false
+            clearSession = true
+            break
+            
+          case DisconnectReason.loggedOut:
+            console.log('👋 WhatsApp: Logged out, clearing session')
+            clearSession = true
+            shouldReconnect = false
+            break
+            
+          case DisconnectReason.restartRequired:
+            console.log('🔄 WhatsApp: Restart required, will reconnect')
+            shouldReconnect = true
+            break
+            
+          case DisconnectReason.timedOut:
+            console.log('⏰ WhatsApp: Connection timed out, will retry')
+            shouldReconnect = true
+            break
 
-        case 'connecting':
-          console.log('🔄 Connecting to WhatsApp...')
-          this.isConnected = false
-          break
-
-        case 'close':
-          console.log('❌ WhatsApp connection closed')
-          this.isConnected = false
-          this.lastDisconnectTime = Date.now()
-          
-          if (update.lastDisconnect?.error) {
-            const boom = update.lastDisconnect.error as Boom
-            const statusCode = boom?.output?.statusCode
-            const errorMessage = boom?.message || 'Connection error'
+          case DisconnectReason.multideviceMismatch:
+            console.log('📱 WhatsApp: Multi-device mismatch, clearing session')
+            clearSession = true
+            shouldReconnect = false
+            break
             
-            console.error('❌ Connection error:', errorMessage, 'Status:', statusCode)
-            
-            // Handle specific error cases
-            if (statusCode === DisconnectReason.loggedOut) {
-              console.log('⚠️ Logged out - clearing session')
-              await this.clearSession()
-              await this.updateSessionStatus(false, undefined, 'Logged out - session cleared')
-              return
-            }
-            
-            if (statusCode === DisconnectReason.multideviceMismatch) {
-              console.log('⚠️ Multi-device mismatch - clearing session')
-              await this.clearSession()
-              await this.updateSessionStatus(false, undefined, 'Multi-device mismatch - session cleared')
-              return
-            }
-            
-            if (errorMessage.includes('conflict') || errorMessage.includes('replaced')) {
-              console.log('⚠️ Session conflict detected - clearing session and stopping reconnect')
-              await this.clearSession()
-              await this.updateSessionStatus(false, undefined, 'Session conflict - cleared')
-              this.reconnectAttempts = this.maxReconnectAttempts // Stop auto reconnect
-              return
-            }
-            
-            // Handle Stream Error 515 - common WhatsApp server-side issue
+          default:
+            // Check for specific error patterns
             if (statusCode === 515 || errorMessage.includes('Stream Errored')) {
-              console.log('⚠️ Stream Error 515 detected - WhatsApp server issue, akan retry dengan delay lebih lama')
-              await this.updateSessionStatus(false, undefined, 'Stream Error 515 - server issue, retrying...')
-              // Use longer delay for stream errors
+              console.log('⚠️ WhatsApp: Stream Error 515 detected - server issue, will retry with longer delay')
+              shouldReconnect = true
               this.minReconnectDelay = Math.max(this.minReconnectDelay, 30000) // Minimum 30 seconds for stream errors
-            }
-            
-            if (statusCode === DisconnectReason.connectionClosed || statusCode === DisconnectReason.connectionLost) {
-              console.log('⚠️ Connection lost - will attempt reconnection after delay')
-              await this.updateSessionStatus(false, undefined, 'Connection lost - reconnecting')
-            }
-            
-            // Auto reconnect if under the limit and not a permanent error
-            if (this.reconnectAttempts < this.maxReconnectAttempts && 
-                statusCode !== DisconnectReason.loggedOut && 
-                statusCode !== DisconnectReason.multideviceMismatch) {
-              this.scheduleReconnect()
+            } else if (errorMessage.includes('401') || errorMessage.includes('Unauthorized')) {
+              console.log('🚫 WhatsApp: 401 Unauthorized error, clearing session')
+              clearSession = true
+              shouldReconnect = false
+            } else if (errorMessage.includes('conflict') || errorMessage.includes('replaced')) {
+              console.log('⚠️ WhatsApp: Session conflict detected, clearing session')
+              clearSession = true
+              shouldReconnect = false
+            } else if (errorMessage.includes('The "data" argument must be of type string') || 
+                      errorMessage.includes('Buffer, TypedArray, or DataView')) {
+              console.log('🔧 WhatsApp: Crypto/Buffer error detected - clearing session to fix corruption')
+              clearSession = true
+              shouldReconnect = false
+            } else if (errorMessage.includes('crypto') || errorMessage.includes('cipher')) {
+              console.log('🔐 WhatsApp: Cryptographic error detected - clearing session')
+              clearSession = true
+              shouldReconnect = false
+            } else if (errorMessage.includes('validation') || errorMessage.includes('validating connection')) {
+              console.log('🔍 WhatsApp: Connection validation failed - clearing session')
+              clearSession = true
+              shouldReconnect = false
             } else {
-              console.log('❌ Max reconnection attempts reached or permanent error. Manual intervention required.')
-              await this.updateSessionStatus(false, undefined, 'Max reconnection attempts reached or permanent error')
+              console.log('❓ WhatsApp: Unknown disconnect reason, will try to reconnect')
+              shouldReconnect = true
             }
-          } else {
-            // Normal disconnection or QR code timeout - be more patient before reconnecting
-            console.log('ℹ️ Normal disconnection detected')
-            await this.updateSessionStatus(false, undefined, 'Connection closed normally')
-            
-            // Only reconnect if we've been disconnected for a while and QR code is not active
-            if (this.reconnectAttempts < this.maxReconnectAttempts && !this.qrCode) {
-              this.scheduleReconnect()
-            } else if (this.qrCode) {
-              console.log('📱 QR Code still active, waiting for scan...')
-            }
-          }
-          break
-
-        default:
-          console.log(`ℹ️ Connection state: ${update.connection}`)
-          break
+            break
+        }
+        
+        // Clear session if needed
+        if (clearSession) {
+          console.log('🗑️ WhatsApp: Clearing session...')
+          await this.clearSession()
+          await this.updateSessionStatus(false, undefined, 'Session cleared - requires new QR scan')
+        } else if (!shouldReconnect) {
+          await this.updateSessionStatus(false, undefined, 'Connection stopped')
+        }
+        
+        // Auto-reconnect if appropriate
+        if (shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
+          console.log('🔄 WhatsApp: Attempting to reconnect in 5 seconds...')
+          await this.updateSessionStatus(false, undefined, 'Reconnecting...')
+          this.scheduleReconnect()
+        } else if (shouldReconnect) {
+          console.log('❌ Max reconnection attempts reached. Manual intervention required.')
+          await this.updateSessionStatus(false, undefined, 'Max reconnection attempts reached')
+        }
+        
+      } else if (connection === 'open') {
+        console.log('✅ WhatsApp connected successfully!')
+        this.isConnected = true
+        this.reconnectAttempts = 0 // Reset attempts on successful connection
+        this.minReconnectDelay = 15000 // Reset to normal delay after successful connection
+        this.qrCode = null
+        this.qrCodeBase64 = null
+        this.lastDisconnectTime = 0
+        
+        // Clear any pending reconnect timer
+        if (this.reconnectTimer) {
+          clearTimeout(this.reconnectTimer)
+          this.reconnectTimer = null
+        }
+        this.isReconnecting = false
+        
+        await this.updateSessionStatus(true, undefined, undefined)
+        await this.processMessageQueue()
+        
+      } else if (connection === 'connecting') {
+        console.log('🔄 Connecting to WhatsApp...')
+        this.isConnected = false
+        await this.updateSessionStatus(false, undefined, 'Connecting...')
+      } else {
+        console.log(`ℹ️ Connection state: ${connection}`)
       }
+      
     } catch (error) {
       console.error('❌ Error handling connection update:', error)
       await this.updateSessionStatus(false, undefined, `Connection update error: ${error}`)
@@ -725,9 +790,9 @@ class WhatsAppService {
       this.qrCodeBase64 = null
       this.reconnectAttempts = 0
 
-      // Clear session data from database instead of filesystem
-      await clearDatabaseAuthState()
-      console.log('✅ Session data cleared from database')
+      // Clear session data from GitHub Gist instead of database
+      await clearGistAuthState()
+      console.log('✅ Session data cleared from GitHub Gist')
 
       await this.updateSessionStatus(false, undefined, 'Session cleared')
     } catch (error) {
@@ -897,7 +962,7 @@ class WhatsAppService {
         await new Promise(resolve => setTimeout(resolve, 3000))
         
         // Initialize with new browser config
-        const { state, saveCreds } = await useDatabaseAuthState()
+        const { state, saveCreds } = await useGistAuthState()
         
         this.socket = makeWASocket({
           auth: state,

@@ -62,7 +62,7 @@ async function testConnectionLogic() {
     console.log('\n✅ Connection logic test completed!')
     console.log('📋 Updated logic features:')
     console.log('   - Simplified reconnection logic')
-    console.log('   - Check shouldReconnect based on logout status only')
+    console.log('   - Check shouldReconnect based on logout status only')  
     console.log('   - Clear session when user logged out')
     console.log('   - Auto-reconnect for other disconnection types')
     console.log('\n🎯 Next: Login as admin and check WhatsApp admin panel')
@@ -73,40 +73,3 @@ async function testConnectionLogic() {
 }
 
 testConnectionLogic()
-    const status = await whatsappService.getConnectionStatus()
-    console.log('📊 Current Status:', JSON.stringify(status, null, 2))
-    
-    // If not connected, try to initialize
-    if (!status.isConnected) {
-      console.log('🔌 Attempting to connect...')
-      await whatsappService.initialize()
-      
-      // Wait for connection status update
-      setTimeout(async () => {
-        const newStatus = await whatsappService.getConnectionStatus()
-        console.log('📊 Updated Status:', JSON.stringify(newStatus, null, 2))
-        
-        if (newStatus.qrCode) {
-          console.log('📱 QR Code generated! Scan it in the browser at /admin/whatsapp')
-        }
-      }, 3000)
-    } else {
-      console.log('✅ WhatsApp is already connected!')
-      
-      // Test sending a message
-      console.log('📤 Testing message sending...')
-      const result = await whatsappService.sendMessage(
-        '081224077855',
-        'Test message from TSM WhatsApp Bot - Connection Test ✅',
-        'TEST'
-      )
-      console.log('📨 Send Result:', result)
-    }
-    
-  } catch (error) {
-    console.error('❌ Test failed:', error)
-  }
-}
-
-// Run the test
-testWhatsApp()
