@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
           await inAppNotificationService.createNotification({
             userId: incident.reporterId,
             type: 'incident_on_hold',
-            title: 'Incident Ditangguhkan PM',
+            title: 'Inspeksi ditangguhkan PM',
             message: `Incident "${incident.title}" ditangguhkan oleh PM: ${comment || 'Tidak ada catatan'}`,
             incidentId: incident.id
           })

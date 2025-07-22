@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
-import { notificationService } from "@/services/notifications"
 import { prisma } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 
@@ -26,7 +25,7 @@ export async function GET(request: NextRequest) {
     if (status) where.status = status as "PENDING" | "SENT" | "DELIVERED" | "READ" | "FAILED"
     if (type) where.type = type as "INCIDENT_SUBMITTED" | "QC_APPROVED" | "QC_REJECTED" | "PM_APPROVED" | "PM_REJECTED" | "SYSTEM_NOTIFICATION"
 
-    const [messages, total, stats] = await Promise.all([
+    const [messages, total, messageStats] = await Promise.all([
       prisma.whatsAppMessage.findMany({
         where,
         include: {
@@ -42,7 +41,26 @@ export async function GET(request: NextRequest) {
         take: limit
       }),
       prisma.whatsAppMessage.count({ where }),
-      notificationService.getNotificationStats()
+      // Get WhatsApp message statistics instead of notification stats
+      Promise.all([
+        prisma.whatsAppMessage.count({ where: { status: 'SENT' } }),
+        prisma.whatsAppMessage.count({ where: { status: 'PENDING' } }),
+        prisma.whatsAppMessage.count({ where: { status: 'FAILED' } }),
+        prisma.whatsAppMessage.count({ where: { status: 'DELIVERED' } }),
+        prisma.whatsAppMessage.count({
+          where: {
+            createdAt: {
+              gte: new Date(new Date().setHours(0, 0, 0, 0))
+            }
+          }
+        })
+      ]).then(([sent, pending, failed, delivered, today]) => ({
+        sent,
+        pending, 
+        failed,
+        delivered,
+        today
+      }))
     ])
 
     return NextResponse.json({
@@ -53,7 +71,7 @@ export async function GET(request: NextRequest) {
         total,
         pages: Math.ceil(total / limit)
       },
-      stats
+      stats: messageStats
     })
 
   } catch (error) {

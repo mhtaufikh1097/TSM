@@ -59,7 +59,7 @@ Status: Incident ditolak oleh QC`
 
   QC_ON_HOLD: {
     type: 'QC_ON_HOLD',
-    title: 'Incident Ditangguhkan QC',
+    title: 'Inspeksi ditangguhkan QC',
     template: (data) => `⏸️ *QC ON HOLD*
 
 🎫 *Ticket ID:* ${data.incident.ticketId}
@@ -70,7 +70,7 @@ Status: Incident ditolak oleh QC`
 ⏸️ *Catatan:*
 ${data.comment}
 
-Status: Incident ditangguhkan sementara`
+Status: Inspeksi ditangguhkan sementara`
   },
 
   PM_APPROVED: {
@@ -104,7 +104,7 @@ Status: Incident ditolak oleh PM`
 
   PM_ON_HOLD: {
     type: 'PM_ON_HOLD',
-    title: 'Incident Ditangguhkan PM',
+    title: 'Inspeksi ditangguhkan PM',
     template: (data) => `⏸️ *PM ON HOLD*
 
 🎫 *Ticket ID:* ${data.incident.ticketId}
@@ -115,7 +115,7 @@ Status: Incident ditolak oleh PM`
 ⏸️ *Catatan:*
 ${data.comment}
 
-Status: Incident ditangguhkan oleh PM`
+Status: Inspeksi ditangguhkan oleh PM`
   }
 }
 

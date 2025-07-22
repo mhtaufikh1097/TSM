@@ -8,69 +8,65 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String
-  phone     String?
-  role      Role     @default(REPORTER)
-  password  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  reportedIncidents Incident[] @relation("ReportedBy")
-  qcIncidents      Incident[] @relation("QCBy")
-  pmIncidents      Incident[] @relation("PMBy")
-  notifications    Notification[] @relation("UserNotifications")
+  id                String         @id @default(cuid())
+  email             String         @unique
+  name              String
+  phone             String?
+  role              Role           @default(REPORTER)
+  password          String
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  pmIncidents       Incident[]     @relation("PMBy")
+  qcIncidents       Incident[]     @relation("QCBy")
+  reportedIncidents Incident[]     @relation("ReportedBy")
+  notifications     Notification[] @relation("UserNotifications")
 
   @@map("users")
 }
 
 model Incident {
-  id          String   @id @default(cuid())
-  ticketId    String   @unique
-  title       String
-  description String   @db.Text
-  location    String
-  occurredAt  DateTime
-  status      Status   @default(OPEN)
-  priority    Priority @default(MEDIUM)
-  
-  reporterId  String
-  reporter    User     @relation("ReportedBy", fields: [reporterId], references: [id])
-  
-  qcId        String?
-  qc          User?    @relation("QCBy", fields: [qcId], references: [id])
-  qcAt        DateTime?
-  qcComment   String?
-  
-  pmId        String?
-  pm          User?    @relation("PMBy", fields: [pmId], references: [id])
-  pmAt        DateTime?
-  pmComment   String?
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  attachments IncidentAttachment[]
-  logs        IncidentLog[]
+  id               String               @id @default(cuid())
+  title            String
+  description      String               @db.Text
+  location         String
+  occurredAt       DateTime
+  status           Status               @default(OPEN)
+  priority         Priority             @default(MEDIUM)
+  reporterId       String
+  qcId             String?
+  qcAt             DateTime?
+  qcComment        String?
+  pmId             String?
+  pmAt             DateTime?
+  pmComment        String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  ticketId         String               @unique
+  attachments      IncidentAttachment[]
+  logs             IncidentLog[]
+  pm               User?                @relation("PMBy", fields: [pmId], references: [id])
+  qc               User?                @relation("QCBy", fields: [qcId], references: [id])
+  reporter         User                 @relation("ReportedBy", fields: [reporterId], references: [id])
   whatsappMessages WhatsAppMessage[]
 
+  @@index([pmId], map: "incidents_pmId_fkey")
+  @@index([qcId], map: "incidents_qcId_fkey")
+  @@index([reporterId], map: "incidents_reporterId_fkey")
   @@map("incidents")
 }
 
 model IncidentAttachment {
-  id         String   @id @default(cuid())
-  filename   String
+  id           String   @id @default(cuid())
+  filename     String
   originalName String
-  mimeType   String
-  size       Int
-  path       String
-  
-  incidentId String
-  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
-  
-  createdAt  DateTime @default(now())
+  mimeType     String
+  size         Int
+  path         String
+  incidentId   String
+  createdAt    DateTime @default(now())
+  incident     Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
 
+  @@index([incidentId], map: "incident_attachments_incidentId_fkey")
   @@map("incident_attachments")
 }
 
@@ -82,10 +78,61 @@ model IncidentLog {
   comment    String?
   userId     String
   incidentId String
-  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
   createdAt  DateTime @default(now())
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
 
+  @@index([incidentId], map: "incident_logs_incidentId_fkey")
   @@map("incident_logs")
+}
+
+model WhatsAppMessage {
+  id         String        @id @default(cuid())
+  phone      String
+  message    String        @db.Text
+  status     MessageStatus @default(PENDING)
+  type       MessageType
+  retryCount Int           @default(0)
+  maxRetries Int           @default(3)
+  incidentId String?
+  error      String?       @db.Text
+  sentAt     DateTime?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  incident   Incident?     @relation(fields: [incidentId], references: [id])
+
+  @@index([incidentId], map: "whatsapp_messages_incidentId_fkey")
+  @@map("whatsapp_messages")
+}
+
+model WhatsAppSession {
+  id          String    @id @default(cuid())
+  isConnected Boolean   @default(false)
+  qrCode      String?   @db.Text
+  lastSeen    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  // Base64 encoded credentials and keys for better compatibility
+  creds       String?   @db.LongText  // Changed from Json to String for Base64
+  keys        String?   @db.LongText  // Changed from Json to String for Base64
+
+  @@map("whatsapp_sessions")
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String
+  type       String
+  title      String
+  message    String   @db.Text
+  incidentId String?
+  data       String?  @db.LongText
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation("UserNotifications", fields: [userId], references: [id])
+
+  @@index([userId], map: "notifications_userId_fkey")
+  @@map("notifications")
 }
 
 enum Role {
@@ -114,35 +161,6 @@ enum Priority {
   CRITICAL
 }
 
-model WhatsAppMessage {
-  id          String   @id @default(cuid())
-  phone       String
-  message     String   @db.Text
-  status      MessageStatus @default(PENDING)
-  type        MessageType
-  retryCount  Int      @default(0)
-  maxRetries  Int      @default(3)
-  incidentId  String?
-  incident    Incident? @relation(fields: [incidentId], references: [id])
-  error       String?  @db.Text
-  sentAt      DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@map("whatsapp_messages")
-}
-
-model WhatsAppSession {
-  id          String   @id @default(cuid())
-  isConnected Boolean  @default(false)
-  qrCode      String?  @db.Text
-  lastSeen    DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@map("whatsapp_sessions")
-}
-
 enum MessageStatus {
   PENDING
   SENT
@@ -159,20 +177,4 @@ enum MessageType {
   PM_REJECTED
   SYSTEM_NOTIFICATION
   TEST
-}
-
-model Notification {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation("UserNotifications", fields: [userId], references: [id])
-  type        String
-  title       String
-  message     String   @db.Text
-  incidentId  String?
-  data        Json?
-  read        Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@map("notifications")
 }

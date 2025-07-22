@@ -1,10 +1,9 @@
-import { makeWASocket, DisconnectReason, useMultiFileAuthState, WAMessage, ConnectionState } from '@whiskeysockets/baileys'
+import { makeWASocket, DisconnectReason, WAMessage, ConnectionState } from '@whiskeysockets/baileys'
 import { Boom } from '@hapi/boom'
 import qrcode from 'qrcode-terminal'
 import QRCode from 'qrcode'
-import path from 'path'
-import fs from 'fs'
 import { prisma } from '@/lib/db'
+import { useDatabaseAuthState, clearDatabaseAuthState } from './database-auth-state'
 
 interface QueuedMessage {
   id: string
@@ -25,15 +24,14 @@ class WhatsAppService {
   private messageQueue: QueuedMessage[] = []
   private processingQueue = false
   private isInitializing = false
-  private sessionPath = path.join(process.cwd(), 'whatsapp_session')
   private reconnectAttempts = 0
   private maxReconnectAttempts = 10
   private connectionState: string = 'close'
   private lastDisconnectTime = 0
-  private minReconnectDelay = 10000 // Increased to 10 seconds minimum delay
+  private minReconnectDelay = 15000 // Increased to 15 seconds minimum delay
   private reconnectTimer: NodeJS.Timeout | null = null
   private isReconnecting = false
-  private qrCodeExpiry = 45000 // QR code expiry time (45 seconds)
+  private qrCodeExpiry = 120000 // QR code expiry time (2 minutes)
 
   constructor() {
     // Auto-initialize on service startup
@@ -101,34 +99,28 @@ class WhatsAppService {
         this.socket = null
       }
 
-      // Ensure session directory exists
-      if (!fs.existsSync(this.sessionPath)) {
-        fs.mkdirSync(this.sessionPath, { recursive: true })
-      }
+      // Use database-based auth state instead of filesystem
+      console.log('🔌 Initializing WhatsApp connection with database auth state...')
+      const { state, saveCreds } = await useDatabaseAuthState()
 
-      console.log('🔌 Initializing WhatsApp connection...')
-      const { state, saveCreds } = await useMultiFileAuthState(this.sessionPath)
-
-      this.socket = makeWASocket({
+        this.socket = makeWASocket({
         auth: state,
         printQRInTerminal: false,
         generateHighQualityLinkPreview: false, // Disable to reduce load
         markOnlineOnConnect: false, // Don't mark online immediately
-        browser: ['TSM Bot', 'Desktop', '1.0.0'], // Simplified browser info
-        defaultQueryTimeoutMs: 30000, // Reduced timeout
-        connectTimeoutMs: 30000, // Reduced timeout
-        qrTimeout: 45000, // Reduced QR timeout but still reasonable
-        retryRequestDelayMs: 1000, // Increased retry delay
-        maxMsgRetryCount: 2, // Reduced retry count
+        browser: ['Ubuntu', 'Chrome', '20.0.04'], // Updated to latest compatible browser version
+        defaultQueryTimeoutMs: 60000, // Increased timeout to 60 seconds
+        connectTimeoutMs: 60000, // Increased timeout to 60 seconds
+        qrTimeout: 120000, // Increased QR timeout to 2 minutes
+        retryRequestDelayMs: 2000, // Increased retry delay
+        maxMsgRetryCount: 3, // Increased retry count
         shouldSyncHistoryMessage: () => false,
         emitOwnEvents: false,
         syncFullHistory: false, // Disable history sync
         getMessage: async (key) => {
           return { conversation: 'Hello' }
         }
-      })
-
-      // Set up event listeners
+      })      // Set up event listeners
       this.socket.ev.on('connection.update', this.handleConnectionUpdate.bind(this))
       this.socket.ev.on('creds.update', saveCreds)
       this.socket.ev.on('messages.upsert', this.handleIncomingMessages.bind(this))
@@ -163,14 +155,17 @@ class WhatsAppService {
           this.qrCode = update.qr
           this.qrCodeBase64 = await QRCode.toDataURL(update.qr)
           console.log('✅ QR Code generated successfully')
+          console.log('⏰ QR Code akan expired dalam 2 menit, silakan scan segera')
           await this.updateSessionStatus(false, this.qrCodeBase64, undefined)
           
-          // Set a timer to handle QR code expiry
+          // Set a timer to handle QR code expiry with better feedback
           setTimeout(() => {
             if (!this.isConnected && this.qrCode === update.qr) {
-              console.log('⏰ QR Code expired, will wait for new one or connection')
+              console.log('⏰ QR Code expired setelah 2 menit, menunggu QR code baru...')
               this.qrCode = null
               this.qrCodeBase64 = null
+              // Update status to show QR expired
+              this.updateSessionStatus(false, null, 'QR Code expired, tunggu QR code baru')
             }
           }, this.qrCodeExpiry)
           
@@ -186,6 +181,7 @@ class WhatsAppService {
           console.log('✅ WhatsApp connection established successfully!')
           this.isConnected = true
           this.reconnectAttempts = 0 // Reset attempts on successful connection
+          this.minReconnectDelay = 15000 // Reset to normal delay after successful connection
           this.qrCode = null
           this.qrCodeBase64 = null
           this.lastDisconnectTime = 0
@@ -237,6 +233,14 @@ class WhatsAppService {
               await this.updateSessionStatus(false, undefined, 'Session conflict - cleared')
               this.reconnectAttempts = this.maxReconnectAttempts // Stop auto reconnect
               return
+            }
+            
+            // Handle Stream Error 515 - common WhatsApp server-side issue
+            if (statusCode === 515 || errorMessage.includes('Stream Errored')) {
+              console.log('⚠️ Stream Error 515 detected - WhatsApp server issue, akan retry dengan delay lebih lama')
+              await this.updateSessionStatus(false, undefined, 'Stream Error 515 - server issue, retrying...')
+              // Use longer delay for stream errors
+              this.minReconnectDelay = Math.max(this.minReconnectDelay, 30000) // Minimum 30 seconds for stream errors
             }
             
             if (statusCode === DisconnectReason.connectionClosed || statusCode === DisconnectReason.connectionLost) {
@@ -721,25 +725,9 @@ class WhatsAppService {
       this.qrCodeBase64 = null
       this.reconnectAttempts = 0
 
-      // Remove session files
-      if (fs.existsSync(this.sessionPath)) {
-        console.log('📁 Removing session files from:', this.sessionPath)
-        const files = fs.readdirSync(this.sessionPath)
-        for (const file of files) {
-          const filePath = path.join(this.sessionPath, file)
-          try {
-            if (fs.statSync(filePath).isDirectory()) {
-              fs.rmSync(filePath, { recursive: true, force: true })
-            } else {
-              fs.unlinkSync(filePath)
-            }
-            console.log(`🗑️ Removed: ${file}`)
-          } catch (error) {
-            console.log(`⚠️ Failed to remove ${file}:`, error)
-          }
-        }
-        console.log('✅ Session files cleared')
-      }
+      // Clear session data from database instead of filesystem
+      await clearDatabaseAuthState()
+      console.log('✅ Session data cleared from database')
 
       await this.updateSessionStatus(false, undefined, 'Session cleared')
     } catch (error) {
@@ -809,6 +797,147 @@ class WhatsAppService {
       console.error('❌ Error resetting and restarting:', error)
       throw error
     }
+  }
+
+  // Force refresh QR code if taking too long
+  async forceRefreshQR() {
+    try {
+      console.log('🔄 Force refreshing QR code...')
+      
+      if (this.socket && !this.isConnected) {
+        // Close current socket
+        await this.socket.end()
+        this.socket = null
+        
+        // Wait a moment
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        
+        // Reinitialize to get new QR
+        await this.initialize()
+        
+        console.log('✅ QR code refresh completed')
+        return { success: true, message: 'QR code refreshed' }
+      } else {
+        console.log('⚠️ Cannot refresh - either no socket or already connected')
+        return { success: false, message: 'Cannot refresh QR code in current state' }
+      }
+    } catch (error) {
+      console.error('❌ Error refreshing QR code:', error)
+      return { success: false, message: 'Failed to refresh QR code', error: String(error) }
+    }
+  }
+
+  // Get connection diagnostics
+  getConnectionDiagnostics() {
+    return {
+      isConnected: this.isConnected,
+      connectionState: this.connectionState,
+      reconnectAttempts: this.reconnectAttempts,
+      isInitializing: this.isInitializing,
+      isReconnecting: this.isReconnecting,
+      hasQRCode: !!this.qrCode,
+      lastDisconnectTime: this.lastDisconnectTime,
+      socketExists: !!this.socket,
+      queueLength: this.messageQueue.length,
+      processingQueue: this.processingQueue,
+      minReconnectDelay: this.minReconnectDelay,
+      maxReconnectAttempts: this.maxReconnectAttempts,
+      qrCodeExpiry: this.qrCodeExpiry
+    }
+  }
+
+  // Handle Stream Error 515 specifically
+  async handleStreamError515() {
+    try {
+      console.log('🔧 Handling Stream Error 515 - implementing recovery strategy...')
+      
+      // Clear current session to force fresh authentication
+      await this.clearSession()
+      
+      // Wait longer before retry due to server-side issue
+      console.log('⏳ Waiting 60 seconds before attempting recovery...')
+      await new Promise(resolve => setTimeout(resolve, 60000))
+      
+      // Set longer reconnect delay for this session
+      this.minReconnectDelay = 45000 // 45 seconds minimum
+      
+      // Reset attempts and start fresh
+      this.reconnectAttempts = 0
+      
+      // Initialize new connection
+      await this.initialize()
+      
+      console.log('✅ Stream Error 515 recovery attempt completed')
+      return { success: true, message: 'Recovery attempt completed' }
+      
+    } catch (error) {
+      console.error('❌ Failed to handle Stream Error 515:', error)
+      return { success: false, message: 'Recovery failed', error: String(error) }
+    }
+  }
+
+  // Try different browser configurations for compatibility
+  async tryDifferentBrowserVersions() {
+    const browserConfigs: [string, string, string][] = [
+      ['Ubuntu', 'Chrome', '20.0.04'],
+      ['Windows', 'Chrome', '116.0.0.0'],
+      ['macOS', 'Safari', '16.6'],
+      ['Chrome (Linux)', '', ''],
+      ['WIKA TSM Desktop', '', ''],
+      ['Ubuntu', 'Firefox', '118.0']
+    ]
+
+    for (let i = 0; i < browserConfigs.length; i++) {
+      const browser = browserConfigs[i]
+      console.log(`🔧 Trying browser config ${i + 1}/${browserConfigs.length}: ${browser.join(' ')}`)
+      
+      try {
+        // Clear session first
+        await this.clearSession()
+        await new Promise(resolve => setTimeout(resolve, 3000))
+        
+        // Initialize with new browser config
+        const { state, saveCreds } = await useDatabaseAuthState()
+        
+        this.socket = makeWASocket({
+          auth: state,
+          printQRInTerminal: false,
+          generateHighQualityLinkPreview: false,
+          markOnlineOnConnect: false,
+          browser: browser,
+          defaultQueryTimeoutMs: 60000,
+          connectTimeoutMs: 60000,
+          qrTimeout: 120000,
+          retryRequestDelayMs: 2000,
+          maxMsgRetryCount: 3,
+          shouldSyncHistoryMessage: () => false,
+          emitOwnEvents: false,
+          syncFullHistory: false,
+          getMessage: async (key) => {
+            return { conversation: 'Hello' }
+          }
+        })
+
+        // Set up event listeners
+        this.socket.ev.on('connection.update', this.handleConnectionUpdate.bind(this))
+        this.socket.ev.on('creds.update', saveCreds)
+        this.socket.ev.on('messages.upsert', this.handleIncomingMessages.bind(this))
+
+        // Wait for connection or QR
+        await new Promise(resolve => setTimeout(resolve, 10000))
+        
+        if (this.isConnected || this.qrCodeBase64) {
+          console.log(`✅ Browser config works: ${browser.join(' ')}`)
+          return { success: true, browser: browser }
+        }
+        
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        console.log(`❌ Browser config failed: ${browser.join(' ')} - ${errorMessage}`)
+      }
+    }
+    
+    return { success: false, message: 'All browser configurations failed' }
   }
 }
 

@@ -20,12 +20,13 @@ export const incidentFormSchema = z.object({
   
   occurredAt: z
     .string()
-    .min(1, "Occurrence date and time is required")
+    .min(1, "Inspection date and time is required")
     .refine((date) => {
-      const occurredDate = new Date(date)
+      const inspectionDate = new Date(date)
       const now = new Date()
-      return occurredDate <= now
-    }, "Occurrence date cannot be in the future"),
+      // Allow future dates but not past dates (older than now)
+      return inspectionDate >= now
+    }, "Inspection date cannot be in the past"),
   
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"], {
     message: "Priority is required",

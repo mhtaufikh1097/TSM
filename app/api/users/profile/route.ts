@@ -4,14 +4,27 @@ import { prisma } from "@/lib/db"
 
 export async function GET(request: NextRequest) {
   try {
+    console.log('🔍 Profile API - Starting GET request')
+    
     const session = await auth()
     
+    console.log('Profile GET request - Session check:', {
+      hasSession: !!session,
+      hasUser: !!session?.user,
+      userId: session?.user?.id || 'undefined',
+      userEmail: session?.user?.email || 'undefined',
+      userRole: session?.user?.role || 'undefined'
+    })
+    
     if (!session?.user) {
+      console.log('Profile GET - No session or user, returning 401')
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
       )
     }
+
+    console.log('Profile GET - Looking for user ID:', session.user.id)
 
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
@@ -26,13 +39,20 @@ export async function GET(request: NextRequest) {
       }
     })
 
+    console.log('Profile GET - Database query result:', {
+      userFound: !!user,
+      userEmail: user?.email || 'N/A'
+    })
+
     if (!user) {
+      console.log('Profile GET - User not found for ID:', session.user.id)
       return NextResponse.json(
         { error: "User not found" },
         { status: 404 }
       )
     }
 
+    console.log('Profile GET - Success, returning user data for:', user.email)
     return NextResponse.json({
       success: true,
       user

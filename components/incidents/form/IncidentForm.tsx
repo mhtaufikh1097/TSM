@@ -187,7 +187,7 @@ export default function IncidentForm() {
       setFilePreviews([])
 
       // Redirect to incident detail or list
-      router.push(`/incidents/${result.incident.id}`)
+      router.push(`/incidents/detail/${result.incident.id}`)
 
     } catch (error) {
       console.error("Error submitting form:", error)
@@ -215,8 +215,8 @@ export default function IncidentForm() {
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">Report New Inspection</h1>
-          <p className="text-gray-700 mt-2">Provide detailed information about the inspection findings</p>
+          <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">Schedule New Inspection</h1>
+          <p className="text-gray-700 mt-2">Schedule and plan detailed inspection with future date capability</p>
         </div>
         
         {draftSaved && (
@@ -249,7 +249,7 @@ export default function IncidentForm() {
               <Input
                 id="title"
                 {...register("title")}
-                placeholder="Brief description of the inspection"
+                placeholder="Brief description of the planned inspection"
                 className={cn(
                   "bg-white border-gray-300 text-gray-900 placeholder:text-gray-500",
                   errors.title && "border-red-500"
@@ -265,7 +265,7 @@ export default function IncidentForm() {
               <Textarea
                 id="description"
                 {...register("description")}
-                placeholder="Provide a detailed description of what was inspected, including any findings and immediate actions taken..."
+                placeholder="Provide a detailed description of what will be inspected, scope of work, and any specific requirements..."
                 rows={6}
                 className={cn(
                   "bg-white border-gray-300 text-gray-900 placeholder:text-gray-500",
@@ -286,7 +286,7 @@ export default function IncidentForm() {
                 <Input
                   id="location"
                   {...register("location")}
-                  placeholder="Where was the inspection conducted?"
+                  placeholder="Where will the inspection be conducted?"
                   className={cn(
                     "bg-white border-gray-300 text-gray-900 placeholder:text-gray-500",
                     errors.location && "border-red-500"
@@ -300,7 +300,7 @@ export default function IncidentForm() {
               <div>
                 <Label htmlFor="occurredAt" className="flex items-center">
                   <Clock className="w-4 h-4 mr-1" />
-                  Inspection Date & Time *
+                  Scheduled Date & Time *
                 </Label>
                 <Input
                   id="occurredAt"
@@ -314,6 +314,9 @@ export default function IncidentForm() {
                 {errors.occurredAt && (
                   <p className="text-red-500 text-sm mt-1">{errors.occurredAt.message}</p>
                 )}
+                <p className="text-xs text-gray-500 mt-1">
+                  You can schedule inspections for future dates
+                </p>
               </div>
             </div>
 
@@ -366,7 +369,7 @@ export default function IncidentForm() {
             <div>
               <Label>Upload Files (Optional)</Label>
               <p className="text-sm text-gray-600 mb-3">
-                Upload images, documents, or other evidence related to the incident.
+                Upload planning documents, reference materials, or previous inspection reports.
                 Max 10 files, 10MB each.
               </p>
               
@@ -469,7 +472,7 @@ export default function IncidentForm() {
             ) : (
               <div className="flex items-center">
                 <Send className="w-4 h-4 mr-2" />
-                Submit Incident
+                Schedule Inspection
               </div>
             )}
           </Button>

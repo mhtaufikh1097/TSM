@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "DISABLE_ESLINT_PLUGIN=true next build",
     "start": "next start",
+    "server": "node server.js",
+    "prod": "npm run build && npm run server",
     "lint": "next lint",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",

@@ -46,6 +46,7 @@ Archive.*
 *.rar
 *.tar.gz
 *.7z
+*.md
 
 # backup folders
 src_backup/

@@ -30,9 +30,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
 
         try {
-          // Test database connection first
-          await prisma.$connect()
-          
           const user = await prisma.user.findUnique({
             where: {
               email: credentials.email as string
@@ -75,8 +72,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           }
           
           return null
-        } finally {
-          await prisma.$disconnect()
         }
       }
     })
