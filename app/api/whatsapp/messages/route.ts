@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
-import { notificationService } from "@/services/notifications"
+import { whatsappService } from "@/services/whatsapp"
 import { prisma } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
         take: limit
       }),
       prisma.whatsAppMessage.count({ where }),
-      notificationService.getNotificationStats()
+      whatsappService.getMessageStats()
     ])
 
     return NextResponse.json({
