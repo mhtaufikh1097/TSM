@@ -1,10 +1,11 @@
-import { makeWASocket, DisconnectReason, useMultiFileAuthState, WAMessage, ConnectionState } from '@whiskeysockets/baileys'
+import { makeWASocket, DisconnectReason, WAMessage, ConnectionState } from '@whiskeysockets/baileys'
 import { Boom } from '@hapi/boom'
 import qrcode from 'qrcode-terminal'
 import QRCode from 'qrcode'
 import path from 'path'
 import fs from 'fs'
 import { prisma } from '@/lib/db'
+import { useStorageApiAuthState, clearStorageApiAuthState } from './storage-auth-state'
 
 interface QueuedMessage {
   id: string
@@ -25,7 +26,6 @@ class WhatsAppService {
   private messageQueue: QueuedMessage[] = []
   private processingQueue = false
   private isInitializing = false
-  private sessionPath = path.join(process.cwd(), 'whatsapp_session')
   private reconnectAttempts = 0
   private maxReconnectAttempts = 10
   private connectionState: string = 'close'
@@ -101,13 +101,8 @@ class WhatsAppService {
         this.socket = null
       }
 
-      // Ensure session directory exists
-      if (!fs.existsSync(this.sessionPath)) {
-        fs.mkdirSync(this.sessionPath, { recursive: true })
-      }
-
       console.log('🔌 Initializing WhatsApp connection...')
-      const { state, saveCreds } = await useMultiFileAuthState(this.sessionPath)
+      const { state, saveCreds } = await useStorageApiAuthState('main')
 
       this.socket = makeWASocket({
         auth: state,
@@ -721,25 +716,9 @@ class WhatsAppService {
       this.qrCodeBase64 = null
       this.reconnectAttempts = 0
 
-      // Remove session files
-      if (fs.existsSync(this.sessionPath)) {
-        console.log('📁 Removing session files from:', this.sessionPath)
-        const files = fs.readdirSync(this.sessionPath)
-        for (const file of files) {
-          const filePath = path.join(this.sessionPath, file)
-          try {
-            if (fs.statSync(filePath).isDirectory()) {
-              fs.rmSync(filePath, { recursive: true, force: true })
-            } else {
-              fs.unlinkSync(filePath)
-            }
-            console.log(`🗑️ Removed: ${file}`)
-          } catch (error) {
-            console.log(`⚠️ Failed to remove ${file}:`, error)
-          }
-        }
-        console.log('✅ Session files cleared')
-      }
+      // Clear session from storage API
+      await clearStorageApiAuthState('main')
+      console.log('✅ Session credentials cleared from storage API')
 
       await this.updateSessionStatus(false, undefined, 'Session cleared')
     } catch (error) {

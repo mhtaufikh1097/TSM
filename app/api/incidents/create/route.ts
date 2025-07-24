@@ -5,9 +5,7 @@ import { incidentFormSchema } from "@/lib/validations/incident"
 import { notificationService } from "@/services/notifications"
 import { notificationService as inAppNotificationService } from "@/services/notifications/notification-service"
 import { generateSequentialTicketId } from "@/lib/ticket-id"
-import { writeFile, mkdir } from "fs/promises"
-import path from "path"
-import { v4 as uuidv4 } from "uuid"
+import { storageApiService } from "@/services/storage-api"
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,32 +40,50 @@ export async function POST(request: NextRequest) {
       files: files.filter(file => file.size > 0)
     })
 
-    // Handle file uploads
+    // Handle file uploads using storage API
     const uploadedFiles = []
     if (validatedData.files && validatedData.files.length > 0) {
-      // Create uploads directory if it doesn't exist
-      const uploadsDir = path.join(process.cwd(), "public", "uploads", "incidents")
-      await mkdir(uploadsDir, { recursive: true })
+      try {
+        console.log(`📤 Uploading ${validatedData.files.length} files to storage API...`)
+        
+        // Prepare files for upload
+        const filesToUpload = await Promise.all(
+          validatedData.files.map(async (file) => {
+            const bytes = await file.arrayBuffer()
+            const buffer = Buffer.from(bytes)
+            
+            return {
+              buffer,
+              originalName: file.name,
+              mimeType: file.type
+            }
+          })
+        )
 
-      for (const file of validatedData.files) {
-        const bytes = await file.arrayBuffer()
-        const buffer = Buffer.from(bytes)
+        // Upload files to storage API
+        const uploadResult = await storageApiService.uploadMultipleFiles(filesToUpload)
         
-        // Generate unique filename
-        const fileExtension = path.extname(file.name)
-        const fileName = `${uuidv4()}${fileExtension}`
-        const filePath = path.join(uploadsDir, fileName)
-        
-        // Save file
-        await writeFile(filePath, buffer)
-        
-        uploadedFiles.push({
-          originalName: file.name,
-          filename: fileName,
-          path: `/uploads/incidents/${fileName}`,
-          size: file.size,
-          mimeType: file.type
-        })
+        if (uploadResult.success && uploadResult.files) {
+          // Map storage API response to our format
+          uploadedFiles.push(...uploadResult.files.map((file: any) => ({
+            originalName: file.originalName,
+            filename: file.filename,
+            path: `/storage-api/uploads/${file.filename}`, // Virtual path for storage API
+            size: file.size,
+            mimeType: file.mimetype,
+            storageApiFile: true // Flag to indicate this is from storage API
+          })))
+          
+          console.log(`✅ Successfully uploaded ${uploadedFiles.length} files to storage API`)
+        } else {
+          throw new Error(`Storage API upload failed: ${uploadResult.error}`)
+        }
+      } catch (uploadError) {
+        console.error('❌ File upload error:', uploadError)
+        return NextResponse.json(
+          { error: `File upload failed: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}` },
+          { status: 500 }
+        )
       }
     }
 

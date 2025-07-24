@@ -187,7 +187,7 @@ export default function IncidentForm() {
       setFilePreviews([])
 
       // Redirect to incident detail or list
-      router.push(`/incidents/${result.incident.id}`)
+      router.push(`/incidents/detail/${result.incident.id}`)
 
     } catch (error) {
       console.error("Error submitting form:", error)
