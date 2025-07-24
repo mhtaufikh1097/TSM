@@ -7,6 +7,16 @@ import fs from 'fs'
 import { prisma } from '@/lib/db'
 import { useStorageApiAuthState, clearStorageApiAuthState } from './storage-auth-state'
 
+// Database timeout utility
+const withTimeout = <T>(promise: Promise<T>, timeoutMs: number = 5000): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => 
+      setTimeout(() => reject(new Error('Database operation timeout')), timeoutMs)
+    )
+  ])
+}
+
 interface QueuedMessage {
   id: string
   phone: string
@@ -308,22 +318,50 @@ class WhatsAppService {
 
   private async updateSessionStatus(isConnected: boolean, qrCode?: string | null, error?: string) {
     try {
-      await prisma.whatsAppSession.upsert({
-        where: { id: 'main' },
-        create: {
-          id: 'main',
-          isConnected,
-          qrCode,
-          lastSeen: new Date()
-        },
-        update: {
-          isConnected,
-          qrCode,
-          lastSeen: new Date()
-        }
+      // Use a simpler, faster query with timeout
+      const updateData = {
+        isConnected,
+        qrCode,
+        lastSeen: new Date()
+      }
+
+      // Try update first (faster than upsert) with timeout
+      const updated = await withTimeout(
+        prisma.whatsAppSession.updateMany({
+          where: { id: 'main' },
+          data: updateData
+        }),
+        3000 // 3 second timeout
+      )
+
+      // If no rows updated, create new record with timeout
+      if (updated.count === 0) {
+        await withTimeout(
+          prisma.whatsAppSession.create({
+            data: {
+              id: 'main',
+              ...updateData
+            }
+          }),
+          3000 // 3 second timeout
+        )
+      }
+
+      console.log('✅ Session status updated successfully')
+    } catch (dbError: any) {
+      // Handle specific MySQL timeout errors gracefully
+      if (dbError.code === 1969 || 
+          dbError.message?.includes('max_statement_time exceeded') ||
+          dbError.message?.includes('Database operation timeout')) {
+        console.warn('⚠️ Database query timeout - continuing without session update')
+        return
+      }
+      
+      // For other errors, just log and continue
+      console.error('⚠️ Error updating session status (non-fatal):', {
+        error: dbError.message,
+        code: dbError.code
       })
-    } catch (error) {
-      console.error('Error updating session status:', error)
     }
   }
 
@@ -335,16 +373,19 @@ class WhatsAppService {
       const formattedPhone = this.formatPhoneNumber(phone)
       console.log(`📱 Formatted phone: ${formattedPhone}`)
       
-      // Create message record first
-      const messageRecord = await prisma.whatsAppMessage.create({
-        data: {
-          phone: formattedPhone.replace('@s.whatsapp.net', ''),
-          message,
-          type: type as any,
-          incidentId,
-          status: 'PENDING'
-        }
-      })
+      // Create message record first with timeout
+      const messageRecord = await withTimeout(
+        prisma.whatsAppMessage.create({
+          data: {
+            phone: formattedPhone.replace('@s.whatsapp.net', ''),
+            message,
+            type: type as any,
+            incidentId,
+            status: 'PENDING'
+          }
+        }),
+        3000 // 3 second timeout
+      )
       
       console.log(`📝 Message record created with ID: ${messageRecord.id}`)
 
@@ -589,16 +630,26 @@ class WhatsAppService {
 
   private async updateMessageStatus(messageId: string, status: 'PENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED', error?: string): Promise<void> {
     try {
-      await prisma.whatsAppMessage.update({
-        where: { id: messageId },
-        data: {
-          status: status,
-          error: error,
-          updatedAt: new Date()
-        }
-      })
-    } catch (error) {
-      console.error('Failed to update message status:', error)
+      await withTimeout(
+        prisma.whatsAppMessage.update({
+          where: { id: messageId },
+          data: {
+            status: status,
+            error: error,
+            updatedAt: new Date()
+          }
+        }),
+        3000 // 3 second timeout
+      )
+    } catch (dbError: any) {
+      // Handle timeout gracefully
+      if (dbError.code === 1969 || 
+          dbError.message?.includes('max_statement_time exceeded') ||
+          dbError.message?.includes('Database operation timeout')) {
+        console.warn('⚠️ Database timeout updating message status - continuing')
+        return
+      }
+      console.error('Failed to update message status:', dbError)
     }
   }
 
@@ -608,10 +659,13 @@ class WhatsAppService {
 
   async getConnectionStatus() {
     try {
-      // Get status from database
-      const sessionRecord = await prisma.whatsAppSession.findFirst({
-        orderBy: { createdAt: 'desc' }
-      })
+      // Get status from database with timeout
+      const sessionRecord = await withTimeout(
+        prisma.whatsAppSession.findFirst({
+          orderBy: { createdAt: 'desc' }
+        }),
+        3000 // 3 second timeout
+      )
 
       return {
         isConnected: this.isConnected,
@@ -621,14 +675,17 @@ class WhatsAppService {
         lastError: null, // We'll add error field to schema later if needed
         sessionExists: sessionRecord?.isConnected || false
       }
-    } catch (error) {
-      console.error('Error getting connection status:', error)
+    } catch (error: any) {
+      console.error('Error getting connection status:', {
+        error: error.message,
+        timeout: error.message?.includes('Database operation timeout')
+      })
       return {
-        isConnected: false,
-        hasQRCode: false,
-        qrCode: null,
+        isConnected: this.isConnected, // Use in-memory status as fallback
+        hasQRCode: !!this.qrCodeBase64,
+        qrCode: this.qrCodeBase64,
         lastConnected: null,
-        lastError: 'Failed to get status',
+        lastError: 'Database timeout',
         sessionExists: false
       }
     }
@@ -649,21 +706,28 @@ class WhatsAppService {
       const today = new Date()
       today.setHours(0, 0, 0, 0)
       
-      const [total, sent, pending, failed, todayCount] = await Promise.all([
-        prisma.whatsAppMessage.count(),
-        prisma.whatsAppMessage.count({ where: { status: 'SENT' } }),
-        prisma.whatsAppMessage.count({ where: { status: 'PENDING' } }),
-        prisma.whatsAppMessage.count({ where: { status: 'FAILED' } }),
-        prisma.whatsAppMessage.count({
-          where: {
-            createdAt: { gte: today }
-          }
-        })
-      ])
+      // Use timeout for all database queries
+      const [total, sent, pending, failed, todayCount] = await withTimeout(
+        Promise.all([
+          prisma.whatsAppMessage.count(),
+          prisma.whatsAppMessage.count({ where: { status: 'SENT' } }),
+          prisma.whatsAppMessage.count({ where: { status: 'PENDING' } }),
+          prisma.whatsAppMessage.count({ where: { status: 'FAILED' } }),
+          prisma.whatsAppMessage.count({
+            where: {
+              createdAt: { gte: today }
+            }
+          })
+        ]),
+        5000 // 5 second timeout for multiple queries
+      )
       
       return { total, sent, pending, failed, today: todayCount }
-    } catch (error) {
-      console.error('Error getting message stats:', error)
+    } catch (error: any) {
+      console.error('Error getting message stats:', {
+        error: error.message,
+        timeout: error.message?.includes('Database operation timeout')
+      })
       return { total: 0, sent: 0, pending: 0, failed: 0, today: 0 }
     }
   }

@@ -17,6 +17,14 @@ export const useStorageApiAuthState = async (sessionId: string = 'main'): Promis
   // Function to read auth state from storage API
   const readData = async () => {
     try {
+      // Skip storage API if disabled in development
+      if (process.env.DISABLE_STORAGE_API === 'true') {
+        console.log('📴 Storage API disabled in development mode')
+        creds = initAuthCreds()
+        keys = {}
+        return
+      }
+
       const credentialsData = await storageApiService.getWhatsAppCredentials(sessionId)
       
       if (credentialsData?.credentials) {
@@ -39,7 +47,7 @@ export const useStorageApiAuthState = async (sessionId: string = 'main'): Promis
         creds = initAuthCreds()
         keys = {}
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error reading auth state from storage API:', error)
       console.log('🆕 Creating new credentials due to error...')
       creds = initAuthCreds()
@@ -50,6 +58,12 @@ export const useStorageApiAuthState = async (sessionId: string = 'main'): Promis
   // Function to write auth state to storage API
   const writeData = async () => {
     try {
+      // Skip storage API if disabled in development
+      if (process.env.DISABLE_STORAGE_API === 'true') {
+        console.log('📴 Storage API disabled - skipping save')
+        return
+      }
+
       const authData = {
         creds: JSON.parse(JSON.stringify(creds, BufferJSON.replacer)),
         keys: JSON.parse(JSON.stringify(keys, BufferJSON.replacer))
@@ -59,15 +73,24 @@ export const useStorageApiAuthState = async (sessionId: string = 'main'): Promis
       const existingData = await storageApiService.getWhatsAppCredentials(sessionId)
       
       if (existingData) {
-        await storageApiService.updateWhatsAppCredentials(sessionId, authData)
-        console.log('🔄 Auth state updated in storage API')
+        const updateResult = await storageApiService.updateWhatsAppCredentials(sessionId, authData)
+        if (updateResult.success) {
+          console.log('🔄 Auth state updated in storage API')
+        } else {
+          console.warn('⚠️ Failed to update auth state in storage API:', updateResult.error)
+        }
       } else {
-        await storageApiService.saveWhatsAppCredentials(sessionId, authData)
-        console.log('💾 Auth state saved to storage API')
+        const saveResult = await storageApiService.saveWhatsAppCredentials(sessionId, authData)
+        if (saveResult.success) {
+          console.log('💾 Auth state saved to storage API')
+        } else {
+          console.warn('⚠️ Failed to save auth state in storage API:', saveResult.error)
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error saving auth state to storage API:', error)
-      throw error
+      // Don't throw error - allow WhatsApp to continue without storage API
+      console.warn('⚠️ Continuing without storage API backup...')
     }
   }
 
