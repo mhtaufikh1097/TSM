@@ -7,8 +7,8 @@ import fs from 'fs'
 import { prisma } from '@/lib/db'
 import { useStorageApiAuthState, clearStorageApiAuthState } from './storage-auth-state'
 
-// Database timeout utility
-const withTimeout = <T>(promise: Promise<T>, timeoutMs: number = 5000): Promise<T> => {
+// Database timeout utility - optimized for PostgreSQL
+const withTimeout = <T>(promise: Promise<T>, timeoutMs: number = 8000): Promise<T> => {
   return Promise.race([
     promise,
     new Promise<never>((_, reject) => 
@@ -241,6 +241,15 @@ class WhatsAppService {
               await this.clearSession()
               await this.updateSessionStatus(false, undefined, 'Session conflict - cleared')
               this.reconnectAttempts = this.maxReconnectAttempts // Stop auto reconnect
+              return
+            }
+            
+            // Handle Stream Error 515 specifically
+            if (statusCode === 515 || errorMessage.includes('Stream Errored')) {
+              console.log('⚠️ Stream Error 515 detected - will restart connection with delay')
+              await this.updateSessionStatus(false, undefined, 'Stream Error 515 - restarting')
+              // Add longer delay for stream errors
+              this.scheduleReconnect(15000) // 15 second delay for stream errors
               return
             }
             
@@ -601,15 +610,17 @@ class WhatsAppService {
     return new Promise(resolve => setTimeout(resolve, ms))
   }
 
-  private scheduleReconnect() {
+  private scheduleReconnect(customDelay?: number) {
     if (this.isReconnecting || this.reconnectTimer) {
       return
     }
 
     this.isReconnecting = true
-    // Exponential backoff with longer delays
-    const baseDelay = this.reconnectAttempts === 0 ? this.minReconnectDelay : this.minReconnectDelay * Math.pow(1.5, this.reconnectAttempts)
-    const delay = Math.min(baseDelay, 60000) // Cap at 60 seconds
+    // Use custom delay if provided, otherwise use exponential backoff
+    const delay = customDelay || Math.min(
+      this.reconnectAttempts === 0 ? this.minReconnectDelay : this.minReconnectDelay * Math.pow(1.5, this.reconnectAttempts),
+      60000 // Cap at 60 seconds
+    )
     
     console.log(`🔄 Scheduling reconnect in ${delay}ms... (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`)
     
