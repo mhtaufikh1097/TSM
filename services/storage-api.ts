@@ -208,6 +208,11 @@ class StorageApiService {
         return { success: true, message: 'Credentials not found (already deleted)' }
       }
       
+      if (error.response?.status === 403) {
+        console.warn('⚠️ Access denied when deleting credentials (403) - credentials may still exist:', sessionId)
+        return { success: true, message: 'Access denied but continuing (credentials may still exist)' }
+      }
+      
       console.error('❌ Failed to delete WhatsApp credentials:', error)
       throw new Error(`Failed to delete credentials: ${error.response?.data?.error || error.message}`)
     }

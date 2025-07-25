@@ -14,18 +14,40 @@ export async function GET(request: NextRequest) {
 
     const status = await whatsappService.getConnectionStatus()
     const stats = await whatsappService.getMessageStats()
+    const qrCode = await whatsappService.getQRCode()
+
+    console.log('ℹ️ Connection state:', status.isConnected)
+    console.log('ℹ️ QR Code available:', !!qrCode)
 
     return NextResponse.json({
-      connection: status,
-      stats
+      success: true,
+      service: {
+        isConnected: status.isConnected,
+        lastConnected: status.lastConnected,
+        lastError: status.lastError,
+        sessionExists: status.sessionExists,
+        storageMode: status.storageMode
+      },
+      qrCode: qrCode || 'No QR code available',
+      stats: {
+        totalSent: stats.totalSent,
+        totalFailed: stats.totalFailed, 
+        totalPending: stats.totalPending,
+        totalDelivered: stats.totalDelivered,
+        totalRead: stats.totalRead
+      }
     })
 
   } catch (error) {
     console.error("Error getting WhatsApp status:", error)
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    )
+    return NextResponse.json({
+      success: false,
+      error: "Internal server error",
+      service: {
+        isConnected: false,
+        lastError: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }, { status: 500 })
   }
 }
 

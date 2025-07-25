@@ -4,8 +4,8 @@ import DashboardLayout from "@/components/layouts/DashboardLayout"
 import ModernWhatsAppDashboard from "@/components/admin/whatsapp/ModernWhatsAppDashboard"
 
 export const metadata = {
-  title: "WhatsApp Management - TSM System",
-  description: "WhatsApp integration management dashboard",
+  title: "WhatsApp Management - TSM System (Updated July 25, 2025)",
+  description: "WhatsApp integration management dashboard - Modern UI",
 }
 
 export default async function AdminWhatsAppPage() {

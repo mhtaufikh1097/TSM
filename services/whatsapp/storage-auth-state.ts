@@ -131,10 +131,19 @@ export const useStorageApiAuthState = async (sessionId: string = 'main'): Promis
  */
 export const clearStorageApiAuthState = async (sessionId: string = 'main'): Promise<void> => {
   try {
-    await storageApiService.deleteWhatsAppCredentials(sessionId)
-    console.log('🗑️ Auth state cleared from storage API')
+    const result = await storageApiService.deleteWhatsAppCredentials(sessionId)
+    if (result.success) {
+      console.log('🗑️ Auth state cleared from storage API:', result.message || 'Deleted successfully')
+    } else {
+      console.warn('⚠️ Storage API delete returned unsuccessful but no error thrown')
+    }
   } catch (error) {
     console.error('❌ Error clearing auth state from storage API:', error)
+    // Don't throw error for 403/404 - let the session clearing continue
+    if (error instanceof Error && (error.message.includes('403') || error.message.includes('404'))) {
+      console.log('📝 Continuing session clear despite storage API error')
+      return
+    }
     throw error
   }
 }

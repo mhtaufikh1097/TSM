@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple WhatsApp Monitor</title>
+    <meta http-equiv="refresh" content="5">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .status { padding: 20px; margin: 15px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .connected { background-color: #d4edda; border: 2px solid #28a745; color: #155724; }
+        .disconnected { background-color: #f8d7da; border: 2px solid #dc3545; color: #721c24; }
+        .qr-section { background-color: #fff3cd; border: 2px solid #ffc107; color: #856404; }
+        .stats { background-color: #ffffff; padding: 20px; border-radius: 8px; margin: 15px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .refresh { background-color: #007bff; color: white; padding: 12px 24px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+        .refresh:hover { background-color: #0056b3; }
+        .info-item { margin: 8px 0; }
+        .badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+        .badge-success { background-color: #28a745; color: white; }
+        .badge-danger { background-color: #dc3545; color: white; }
+        .badge-warning { background-color: #ffc107; color: #212529; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Simple WhatsApp Connection Monitor</h1>
+        
+        <div id="status-container">
+            <p>Loading...</p>
+        </div>
+        
+        <button class="refresh" onclick="refreshStatus()">🔄 Refresh Now</button>
+        
+        <div style="margin-top: 20px; padding: 15px; background-color: #e9ecef; border-radius: 5px;">
+            <h4>📋 Connection Info</h4>
+            <div class="info-item"><strong>Mode:</strong> <span class="badge badge-warning">SIMPLE</span></div>
+            <div class="info-item"><strong>Version:</strong> [2, 3000, 1025091846]</div>
+            <div class="info-item"><strong>Auth Directory:</strong> auth_info_baileys</div>
+            <div class="info-item"><strong>Auto Refresh:</strong> Every 5 seconds</div>
+        </div>
+    </div>
+    
+    <script>
+        async function refreshStatus() {
+            try {
+                const response = await fetch('/api/whatsapp/status');
+                const data = await response.json();
+                
+                let html = '';
+                
+                if (data.success) {
+                    const isConnected = data.service.isConnected;
+                    const statusClass = isConnected ? 'connected' : 'disconnected';
+                    const statusText = isConnected ? 'CONNECTED ✅' : 'DISCONNECTED ❌';
+                    const statusBadge = isConnected ? 'badge-success' : 'badge-danger';
+                    
+                    html += `
+                        <div class="status ${statusClass}">
+                            <h2>Status: ${statusText}</h2>
+                            <div class="info-item"><strong>Storage Mode:</strong> <span class="badge ${statusBadge}">${data.service.storageMode.toUpperCase()}</span></div>
+                            <div class="info-item"><strong>Session Exists:</strong> ${data.service.sessionExists ? '✅ Yes' : '❌ No'}</div>
+                            <div class="info-item"><strong>Has QR Code:</strong> ${data.service.hasQRCode ? '📱 Yes' : '❌ No'}</div>
+                            <div class="info-item"><strong>Last Connected:</strong> ${data.service.lastConnected ? new Date(data.service.lastConnected).toLocaleString() : 'Never'}</div>
+                            ${data.service.lastError ? `<div class="info-item"><strong>Last Error:</strong> <span style="color: #dc3545;">${data.service.lastError}</span></div>` : ''}
+                        </div>
+                    `;
+                    
+                    if (data.service.hasQRCode && data.qrCode && data.qrCode !== 'No QR code available') {
+                        html += `
+                            <div class="status qr-section">
+                                <h3>📱 QR Code Ready for Scanning</h3>
+                                <p>Open WhatsApp on your phone and scan this QR code:</p>
+                                <div style="text-align: center; margin: 20px 0;">
+                                    <img src="${data.qrCode}" alt="WhatsApp QR Code" style="max-width: 300px; border: 2px solid #000; border-radius: 8px;">
+                                </div>
+                                <p style="text-align: center; color: #856404; font-size: 14px;">
+                                    ⏱️ QR Code will expire in 45 seconds. Refresh if needed.
+                                </p>
+                            </div>
+                        `;
+                    }
+                    
+                    html += `
+                        <div class="stats">
+                            <h3>📊 Message Statistics</h3>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                                <div class="info-item"><strong>Total Sent:</strong> <span class="badge badge-success">${data.stats.totalSent}</span></div>
+                                <div class="info-item"><strong>Failed:</strong> <span class="badge badge-danger">${data.stats.totalFailed}</span></div>
+                                <div class="info-item"><strong>Pending:</strong> <span class="badge badge-warning">${data.stats.totalPending}</span></div>
+                                <div class="info-item"><strong>Queue Size:</strong> <span class="badge badge-warning">${data.stats.queueSize}</span></div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    html = `
+                        <div class="status disconnected">
+                            <h2>❌ SERVICE ERROR</h2>
+                            <p><strong>Error:</strong> ${data.error}</p>
+                        </div>
+                    `;
+                }
+                
+                html += `<p style="text-align: center; color: #6c757d; font-size: 12px; margin-top: 20px;">Last updated: ${new Date().toLocaleString()}</p>`;
+                
+                document.getElementById('status-container').innerHTML = html;
+                
+            } catch (error) {
+                document.getElementById('status-container').innerHTML = `
+                    <div class="status disconnected">
+                        <h2>❌ Connection Error</h2>
+                        <p><strong>Error:</strong> ${error.message}</p>
+                        <p>Make sure the development server is running on port 3000.</p>
+                    </div>
+                `;
+            }
+        }
+        
+        // Load on page load
+        refreshStatus();
+        
+        // Auto refresh every 5 seconds
+        setInterval(refreshStatus, 5000);
+    </script>
+</body>
+</html>
