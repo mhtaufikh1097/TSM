@@ -224,6 +224,73 @@ app.post('/api/upload-multiple', authenticateAPI, upload.array('files', 5), asyn
   }
 });
 
+// Get/Download file endpoint
+app.get('/api/files/:filename', authenticateAPI, async (req, res) => {
+  try {
+    const { filename } = req.params;
+    const filepath = path.join('./uploads', filename);
+
+    console.log('📥 File download request:', filename);
+
+    // Check if file exists
+    try {
+      await fs.access(filepath);
+    } catch (error) {
+      console.log('❌ File not found:', filename);
+      return res.status(404).json({
+        success: false,
+        error: 'File not found'
+      });
+    }
+
+    // Get file stats for content type
+    const stats = await fs.stat(filepath);
+    const ext = path.extname(filename).toLowerCase();
+    
+    // Set appropriate content type based on file extension
+    let contentType = 'application/octet-stream';
+    const mimeTypes = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.gif': 'image/gif',
+      '.pdf': 'application/pdf',
+      '.doc': 'application/msword',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.txt': 'text/plain',
+      '.json': 'application/json'
+    };
+    
+    if (mimeTypes[ext]) {
+      contentType = mimeTypes[ext];
+    }
+
+    // Set headers
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', stats.size);
+    res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+    
+    // For downloads, set Content-Disposition
+    const downloadParam = req.query.download;
+    if (downloadParam === 'true') {
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    }
+
+    // Stream the file
+    const fileBuffer = await fs.readFile(filepath);
+    console.log('✅ File served successfully:', filename);
+    
+    res.send(fileBuffer);
+
+  } catch (error) {
+    console.error('❌ File serve error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to serve file'
+    });
+  }
+});
+
 // WhatsApp credentials storage endpoints
 
 // Save WhatsApp credentials
@@ -475,6 +542,7 @@ const startServer = async () => {
     console.log(`   GET  /health - Health check`);
     console.log(`   POST /api/upload - Single file upload`);
     console.log(`   POST /api/upload-multiple - Multiple files upload`);
+    console.log(`   GET  /api/files/:filename - Get/Download file`);
     console.log(`   POST /api/whatsapp/credentials - Save WhatsApp credentials`);
     console.log(`   GET  /api/whatsapp/credentials/:sessionId - Get credentials`);
     console.log(`   PUT  /api/whatsapp/credentials/:sessionId - Update credentials`);

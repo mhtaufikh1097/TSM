@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import fs from 'fs'
 import path from 'path'
@@ -11,19 +10,7 @@ export async function GET(
   try {
     const { filename } = await params
     
-    console.log('📁 File access request:', { filename })
-    
-    // Authentication check - only authenticated users can access files
-    const session = await auth()
-    if (!session?.user) {
-      console.log('❌ Authentication failed - no session')
-      return NextResponse.json(
-        { error: "Unauthorized - Please login to access files" },
-        { status: 401 }
-      )
-    }
-    
-    console.log('✅ Authentication successful:', { userId: session.user.id, role: session.user.role })
+    console.log('📁 Test file access request:', { filename })
 
     // Find attachment in database to verify it exists and get metadata
     const attachment = await prisma.incidentAttachment.findFirst({
@@ -41,33 +28,16 @@ export async function GET(
 
     if (!attachment) {
       return NextResponse.json(
-        { error: "File not found" },
+        { error: "File not found in database" },
         { status: 404 }
       )
     }
 
-    // Check if user has permission to access this file
-    const user = session.user
-    const incident = attachment.incident
-
-    // Allow access if:
-    // 1. User is ADMIN
-    // 2. User is the reporter of the incident  
-    // 3. User is QC or PM (can view all incidents)
-    const hasAccess = 
-      user.role === 'ADMIN' ||
-      user.id === incident.reporterId ||
-      ['QC', 'PM'].includes(user.role)
-
-    if (!hasAccess) {
-      console.log('❌ Access denied:', { userId: user.id, role: user.role, incidentReporter: incident.reporterId })
-      return NextResponse.json(
-        { error: "Access denied" },
-        { status: 403 }
-      )
-    }
-    
-    console.log('✅ Access granted:', { userId: user.id, role: user.role })
+    console.log('✅ File found in database:', { 
+      originalName: attachment.originalName, 
+      path: attachment.path,
+      mimeType: attachment.mimeType 
+    })
 
     // Try to serve from storage API first - multiple URL attempts
     const storageUrls = [
@@ -122,13 +92,15 @@ export async function GET(
       // Check if file exists
       if (!fs.existsSync(filePath)) {
         return NextResponse.json(
-          { error: "File not found on disk" },
+          { error: "File not found on disk", searchedPath: filePath },
           { status: 404 }
         )
       }
 
       // Read file
       const fileBuffer = fs.readFileSync(filePath)
+
+      console.log(`✅ File served from local: ${filePath} (${fileBuffer.length} bytes)`)
 
       // Return file with proper headers
       return new NextResponse(fileBuffer, {
@@ -140,18 +112,18 @@ export async function GET(
         }
       })
 
-    } catch (fileError) {
+    } catch (fileError: any) {
       console.error('❌ Local file access failed:', fileError)
       return NextResponse.json(
-        { error: "Failed to read file" },
+        { error: "Failed to read file", details: fileError.message },
         { status: 500 }
       )
     }
 
-  } catch (error) {
-    console.error("❌ Error serving file:", error)
+  } catch (error: any) {
+    console.error("❌ Error serving test file:", error)
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "Internal server error", details: error.message },
       { status: 500 }
     )
   }
