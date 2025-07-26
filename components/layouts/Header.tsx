@@ -194,7 +194,7 @@ export default function Header({ onMenuClick, title }: HeaderProps) {
                       ))}
                       <div className="pt-3 border-t border-gray-100">
                         <Link href="/notifications">
-                          <Button variant="outline" size="sm" className="w-full">
+                          <Button variant="outline" size="sm" className="w-full text-gray-800">
                             <Eye className="w-4 h-4 mr-2" />
                             View All Notifications
                           </Button>

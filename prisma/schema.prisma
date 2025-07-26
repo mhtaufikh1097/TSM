@@ -176,3 +176,14 @@ model Notification {
 
   @@map("notifications")
 }
+
+model WhatsAppCredential {
+  id          String   @id @default(cuid())
+  sessionId   String   @unique
+  creds       String?  @db.Text // JSON string of authentication credentials
+  keys        String?  @db.Text // JSON string of signal keys
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("whatsapp_credentials")
+}

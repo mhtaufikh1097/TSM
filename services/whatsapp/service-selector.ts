@@ -1,51 +1,28 @@
-// Service selector - switches between real and mock WhatsApp service
-// Set WHATSAPP_MOCK_MODE=true in .env.local to use mock service
-// Set WHATSAPP_STORAGE_MODE=upload|enhanced|simple to choose storage method
+// Service selector - SINGLETON PATTERN to prevent multiple instances
+// This ensures only ONE WhatsApp service instance exists globally
 
-const useMockService = process.env.WHATSAPP_MOCK_MODE === 'true'
-const storageMode = process.env.WHATSAPP_STORAGE_MODE || 'simple'
-
-console.log(`📱 WhatsApp Service Mode: ${useMockService ? 'MOCK' : 'REAL'}`)
-console.log(`💾 WhatsApp Storage Mode: ${storageMode.toUpperCase()}`)
-console.log(`🔧 WHATSAPP_MOCK_MODE: ${process.env.WHATSAPP_MOCK_MODE}`)
-console.log(`🗂️  WHATSAPP_STORAGE_MODE: ${storageMode}`)
+console.log(`📱 WhatsApp Service Mode: REAL`)
+console.log(`💾 WhatsApp Storage Mode: SIMPLE`)
 console.log(`🌍 NODE_ENV: ${process.env.NODE_ENV}`)
 
-let whatsappService: any
+// SINGLETON PATTERN - Only create ONE instance globally
+let whatsappServiceInstance: any = null
 
-if (useMockService) {
-  console.log('⚠️  Using Mock WhatsApp Service for development')
-  console.log('💡 Set WHATSAPP_MOCK_MODE=false to use real WhatsApp integration')
-  
-  // Import and use mock service
-  const { whatsappService: mockService } = require('./mock-service')
-  whatsappService = mockService
-} else {
-  if (storageMode === 'upload') {
-    console.log('📱 Using Real WhatsApp Service with UPLOAD storage (Storage API)')
+function getWhatsAppServiceInstance() {
+  if (whatsappServiceInstance === null) {
+    console.log('🔥 Creating SINGLE WhatsApp Service instance')
     
-    // Import and create real service with upload storage
-    const { WhatsAppService } = require('./index')
-    whatsappService = new WhatsAppService()
-  } else if (storageMode === 'enhanced') {
-    console.log('🚀 Using ENHANCED WhatsApp Service with latest Baileys features (File System)')
-    
-    // Import and create enhanced service
-    const { EnhancedWhatsAppService } = require('./enhanced-service')
-    whatsappService = new EnhancedWhatsAppService()
-  } else if (storageMode === 'simple') {
-    console.log('🔥 Using SIMPLE WhatsApp Service with stable connection (File System)')
-    
-    // Import and create simple service
+    // Always use simple service for stability
     const { SimpleWhatsAppService } = require('./simple-service')
-    whatsappService = new SimpleWhatsAppService()
+    whatsappServiceInstance = new SimpleWhatsAppService()
+    
+    console.log('✅ Single WhatsApp Service instance created')
   } else {
-    console.log('🔥 Using Default SIMPLE WhatsApp Service (stable connection)')
-    
-    // Default to simple service
-    const { SimpleWhatsAppService } = require('./simple-service')
-    whatsappService = new SimpleWhatsAppService()
+    console.log('♻️ Reusing existing WhatsApp Service instance')
   }
+  
+  return whatsappServiceInstance
 }
 
-export { whatsappService }
+// Export singleton instance
+export const whatsappService = getWhatsAppServiceInstance()

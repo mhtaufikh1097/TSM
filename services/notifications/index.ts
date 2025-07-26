@@ -1,7 +1,14 @@
-import { whatsappService } from '@/services/whatsapp'
+// Dynamic import to prevent auto-instantiation conflict
+// import { whatsappService } from '@/services/whatsapp'
 import { prisma } from '@/lib/db'
 import { customNotificationTemplates } from '@/utils/notification-templates'
 import { generateIncidentToken } from '@/lib/tokens'
+
+// Helper function to get whatsappService dynamically
+async function getWhatsAppService() {
+  const { whatsappService } = await import('@/services/whatsapp')
+  return whatsappService
+}
 
 export interface NotificationTemplate {
   type: string
@@ -152,15 +159,16 @@ export class NotificationService {
             qc: qcUser
           })
 
-          // Generate token for QC review
-          const token = generateIncidentToken(incidentId, 'qc', qcUser.id)
-          const reviewUrl = `${process.env.NEXTAUTH_URL}/incidents/detail/${incidentId}?token=${token}&role=qc`
+          // Generate direct link without token
+          const reviewUrl = `${process.env.NEXTAUTH_URL}/incidents/detail/${incidentId}`
           
           const fullMessage = `${message}
 
 🔗 *Klik untuk review:*
 ${reviewUrl}`
 
+          // Dynamic import to prevent auto-instantiation conflict
+          const whatsappService = await getWhatsAppService()
           await whatsappService.sendMessage(qcUser.phone, fullMessage)
         }
       }
@@ -204,16 +212,15 @@ ${reviewUrl}`
               reviewedAt: new Date().toLocaleString('id-ID')
             })
 
-            // Generate token for PM review
-            const token = generateIncidentToken(incidentId, 'pm', pmUser.id)
-            const reviewUrl = `${process.env.NEXTAUTH_URL}/incidents/detail/${incidentId}?token=${token}&role=pm`
+            // Generate direct link without token for PM review
+            const reviewUrl = `${process.env.NEXTAUTH_URL}/incidents/detail/${incidentId}`
             
             const fullMessage = `${message}
 
 🔗 *Klik untuk review PM:*
 ${reviewUrl}`
 
-            await whatsappService.sendMessage(pmUser.phone, fullMessage)
+            const whatsappService = await getWhatsAppService(); await whatsappService.sendMessage(pmUser.phone, fullMessage)
           }
         }
       } else {
@@ -226,7 +233,7 @@ ${reviewUrl}`
             reviewedAt: new Date().toLocaleString('id-ID')
           })
 
-          await whatsappService.sendMessage(incident.reporter.phone, message)
+          const whatsappService = await getWhatsAppService(); await whatsappService.sendMessage(incident.reporter.phone, message)
         }
       }
 
@@ -261,7 +268,7 @@ ${reviewUrl}`
           reviewedAt: new Date().toLocaleString('id-ID')
         })
 
-        await whatsappService.sendMessage(incident.reporter.phone, message)
+        const whatsappService = await getWhatsAppService(); await whatsappService.sendMessage(incident.reporter.phone, message)
       }
 
     } catch (error) {
@@ -297,7 +304,7 @@ ${reviewUrl}`
           reviewedAt: new Date().toLocaleString('id-ID')
         })
 
-        await whatsappService.sendMessage(incident.reporter.phone, message)
+        const whatsappService = await getWhatsAppService(); await whatsappService.sendMessage(incident.reporter.phone, message)
       }
 
       // Notify QC about PM decision
@@ -309,7 +316,7 @@ ${reviewUrl}`
           reviewedAt: new Date().toLocaleString('id-ID')
         })
 
-        await whatsappService.sendMessage(incident.qc.phone, message)
+        const whatsappService = await getWhatsAppService(); await whatsappService.sendMessage(incident.qc.phone, message)
       }
 
     } catch (error) {
@@ -347,7 +354,7 @@ ${reviewUrl}`
             reviewedAt: new Date().toLocaleString('id-ID')
           })
 
-          await whatsappService.sendMessage(recipient.phone, message)
+          const whatsappService = await getWhatsAppService(); await whatsappService.sendMessage(recipient.phone, message)
         }
       }
 

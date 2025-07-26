@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { 
   MessageSquare, 
   Wifi, 
@@ -23,9 +24,12 @@ import {
   Loader2,
   Users,
   Eye,
-  MessageCircle
+  MessageCircle,
+  Settings,
+  Database
 } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import CredentialStorageManager from './CredentialStorageManager'
 
 interface WhatsAppStatus {
   isConnected: boolean
@@ -346,8 +350,22 @@ export default function ModernWhatsAppDashboard() {
           </CardContent>
         </Card>
 
-        {/* Main Dashboard Grid */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        {/* Main Dashboard Content */}
+        <Tabs defaultValue="dashboard" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2 bg-white/60 backdrop-blur-sm">
+            <TabsTrigger value="dashboard" className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4" />
+              Dashboard
+            </TabsTrigger>
+            <TabsTrigger value="storage" className="flex items-center gap-2">
+              <Database className="h-4 w-4" />
+              Storage Management
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="dashboard" className="space-y-6">
+            {/* Dashboard Grid */}
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
           {/* Status & QR Column */}
           <div className="xl:col-span-1 space-y-6">
             {/* Connection Status Card */}
@@ -655,6 +673,12 @@ export default function ModernWhatsAppDashboard() {
             </Card>
           </div>
         </div>
+          </TabsContent>
+
+          <TabsContent value="storage">
+            <CredentialStorageManager />
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   )

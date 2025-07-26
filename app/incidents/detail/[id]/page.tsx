@@ -113,12 +113,14 @@ export default function IncidentDetailPage() {
 
   const fetchIncident = async () => {
     try {
-      const response = await fetch(`/api/incidents/${incidentId}?token=${token}&role=${role}`)
+      // Removed token requirement - use simple API call
+      const response = await fetch(`/api/incidents/${incidentId}`)
       if (response.ok) {
         const data = await response.json()
         setIncident(data.incident || data) // Handle both response formats
       } else {
-        setError("Incident not found or invalid token")
+        const errorData = await response.json()
+        setError(errorData.error || "Incident not found")
       }
     } catch (error) {
       setError("Failed to fetch incident")
@@ -132,8 +134,8 @@ export default function IncidentDetailPage() {
 
     setSubmitting(true)
     try {
-      // Use the new unified API endpoint
-      const url = `/api/incidents/${incident.id}${token && role ? `?token=${token}&role=${role}` : ''}`
+      // Simplified API call without token requirement
+      const url = `/api/incidents/${incident.id}`
       
       const response = await fetch(url, {
         method: 'PATCH',
@@ -206,31 +208,13 @@ export default function IncidentDetailPage() {
         qcAt: incident.qcAt,
         pmAt: incident.pmAt
       },
-      token,
-      role,
       session: session?.user ? {
         role: session.user.role,
         email: session.user.email
       } : 'No session'
     })
     
-    // Mode 1: Akses via WhatsApp link dengan token
-    if (token && role) {
-      console.log('DEBUG: Using token-based access')
-      // QC dapat review jika status OPEN atau PENDING_QC dan belum di-review QC
-      if (role === 'qc' && ['OPEN', 'PENDING_QC'].includes(incident.status) && !incident.qcAt) {
-        console.log('DEBUG: QC token-based review allowed')
-        return true
-      }
-      
-      // PM dapat review jika sudah QC_APPROVED dan belum di-review PM
-      if (role === 'pm' && incident.status === 'QC_APPROVED' && !incident.pmAt) {
-        console.log('DEBUG: PM token-based review allowed')
-        return true
-      }
-    }
-    
-    // Mode 2: Akses normal dari dashboard dengan session
+    // Simplified: Only use session-based access (removed token requirement)
     if (session?.user) {
       console.log('DEBUG: Using session-based access')
       const userRole = session.user.role
@@ -323,15 +307,15 @@ export default function IncidentDetailPage() {
 
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 text-gray-900">
             <Button variant="outline" size="sm" onClick={() => router.back()}>
-              <ArrowLeft className="h-4 w-4 mr-2" />
+              <ArrowLeft className="h-4 w-4 mr-2 text-gray-900" />
               Back
             </Button>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Incident Detail</h1>
               <p className="text-sm text-gray-600">
-                {role === 'qc' ? 'QC Review' : role === 'pm' ? 'PM Review' : 'View Only'}
+                View incident details and take action if authorized
               </p>
             </div>
           </div>
@@ -459,6 +443,7 @@ export default function IncidentDetailPage() {
                       value={comment}
                       onChange={(e) => setComment(e.target.value)}
                       rows={3}
+                      className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
 
@@ -512,7 +497,7 @@ export default function IncidentDetailPage() {
                 <div className="space-y-2">
                   <p className="font-medium">{incident.reporter.name}</p>
                   <p className="text-sm text-gray-600">{incident.reporter.email}</p>
-                  <Badge variant="outline">{incident.reporter.role}</Badge>
+                  <Badge variant="outline" className="text-gray-900">{incident.reporter.role}</Badge>
                 </div>
               </CardContent>
             </Card>

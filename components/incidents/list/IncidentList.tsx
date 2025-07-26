@@ -227,9 +227,9 @@ export default function IncidentList() {
             variant="outline"
             onClick={() => fetchIncidents()}
             disabled={loading}
-            className="hidden sm:flex"
+            className="hidden sm:flex text-gray-900"
           >
-            <RefreshCw className={cn("w-4 h-4 mr-2", loading && "animate-spin")} />
+            <RefreshCw className={cn("w-4 h-4 mr-2 text-gray-900", loading && "animate-spin")} />
             Refresh
           </Button>
           <Button 

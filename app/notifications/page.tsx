@@ -146,7 +146,7 @@ export default function NotificationsPage() {
                         </span>
                         {notification.incidentId && (
                           <Link 
-                            href={`/incidents/${notification.incidentId}`}
+                            href={`/incidents/detail/${notification.incidentId}`}
                             className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
                           >
                             View Incident <ExternalLink className="w-3 h-3" />

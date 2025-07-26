@@ -27,10 +27,12 @@ class SimpleWhatsAppService {
   constructor() {
     console.log('🚀 [SIMPLE] Initializing Simple WhatsApp Service')
     
-    // Auto-initialize
+    // Enable auto-initialize for Simple Service only (safe since it uses unified connection)
     setTimeout(() => {
-      this.initialize()
-    }, 2000)
+      this.initialize().catch(error => {
+        console.error('❌ [SIMPLE] Auto-initialization failed:', error)
+      })
+    }, 3000) // 3 second delay
     
     // Start connection monitor
     this.startConnectionMonitor()
@@ -38,11 +40,20 @@ class SimpleWhatsAppService {
     // Listen to connection events
     connectionEvents.on('connectionChange', (connected: boolean) => {
       console.log(`📡 [SIMPLE] Connection event received: ${connected}`)
+      const previousState = this.isConnected
       this.isConnected = Boolean(connected) // Ensure boolean type
       
-      // Clear error when connected
-      if (connected) {
-        this.lastError = null
+      // Log significant changes
+      if (previousState !== this.isConnected) {
+        console.log(`🔄 [SIMPLE] Connection state changed: ${previousState} -> ${this.isConnected}`)
+        
+        // Clear error when connected
+        if (connected) {
+          this.lastError = null
+          console.log(`✅ [SIMPLE] Connection restored, error cleared`)
+        } else {
+          console.log(`❌ [SIMPLE] Connection lost`)
+        }
       }
       
       // Update database status
@@ -51,19 +62,24 @@ class SimpleWhatsAppService {
   }
 
   private startConnectionMonitor() {
-    // Monitor connection status every 15 seconds
+    // Monitor connection status every 30 seconds (reduced frequency)
     this.connectionMonitor = setInterval(async () => {
-      const actualConnected = Boolean(isWhatsAppConnected()) // Ensure boolean type
-      
-      // Only log and update if status actually changed
-      if (actualConnected !== this.isConnected) {
-        console.log(`🔄 [SIMPLE] Connection status changed: ${this.isConnected} -> ${actualConnected}`)
-        this.isConnected = actualConnected
+      try {
+        const actualConnected = Boolean(isWhatsAppConnected()) // Ensure boolean type
         
-        // Update database
-        await this.updateSessionStatus(actualConnected)
+        // Only log and update if status actually changed
+        if (actualConnected !== this.isConnected) {
+          console.log(`🔄 [SIMPLE] Connection status changed: ${this.isConnected} -> ${actualConnected}`)
+          this.isConnected = actualConnected
+          
+          // Update database
+          await this.updateSessionStatus(actualConnected)
+        }
+      } catch (error) {
+        console.error('❌ [SIMPLE] Error in connection monitor:', error)
+        this.isConnected = false // Fail safe to false on error
       }
-    }, 15000)
+    }, 30000) // Increased from 15000 to 30000 (30 seconds)
   }
 
   async initialize() {
@@ -96,6 +112,47 @@ class SimpleWhatsAppService {
     try {
       console.log(`📤 [SIMPLE] Sending message to ${phone}:`, message.substring(0, 50) + '...')
       
+      // ENHANCED CONNECTION CHECK WITH RETRY
+      let retryCount = 0
+      const maxRetries = 3
+      let isActuallyConnected = false
+      
+      while (retryCount < maxRetries && !isActuallyConnected) {
+        // Get real-time connection status
+        const connectionStatus = isWhatsAppConnected()
+        console.log(`🔍 [DEBUG] Attempt ${retryCount + 1}: isWhatsAppConnected: ${connectionStatus}`)
+        
+        if (connectionStatus) {
+          isActuallyConnected = true
+          break
+        }
+        
+        // If not connected, try to initialize
+        if (retryCount === 0) {
+          console.log(`🔄 [SIMPLE] Connection check failed, attempting initialization...`)
+          try {
+            await this.initialize()
+            // Wait a bit for connection to establish
+            await new Promise(resolve => setTimeout(resolve, 2000))
+          } catch (initError) {
+            console.error(`❌ [SIMPLE] Initialization failed:`, initError)
+          }
+        }
+        
+        retryCount++
+        if (retryCount < maxRetries && !isActuallyConnected) {
+          console.log(`⏳ [SIMPLE] Waiting 1s before retry ${retryCount + 1}/${maxRetries}...`)
+          await new Promise(resolve => setTimeout(resolve, 1000))
+        }
+      }
+      
+      if (!isActuallyConnected) {
+        console.log(`❌ [SIMPLE] WhatsApp not connected after ${maxRetries} attempts`)
+        return { success: false, error: 'WhatsApp not connected after retries' }
+      }
+      
+      console.log(`✅ [SIMPLE] Connection verified, proceeding with message send`)
+      
       // Format phone number
       const formattedPhone = this.formatPhoneNumber(phone)
       
@@ -109,19 +166,85 @@ class SimpleWhatsAppService {
           status: 'PENDING'
         }
       })
-      
-      if (!this.isConnected) {
-        console.log('❌ [SIMPLE] WhatsApp not connected')
-        await this.updateMessageStatus(messageRecord.id, 'FAILED', 'WhatsApp not connected')
-        return { success: false, error: 'WhatsApp not connected' }
-      }
 
-      // Get socket and send message
-      const socket = await getWhatsAppSocket()
+      // Enhanced socket validation with retry
+      let socket;
+      try {
+        socket = await getWhatsAppSocket()
+        
+        // Additional safety checks with retry
+        if (!socket || !socket.authState?.creds?.me) {
+          console.log(`❌ [SIMPLE] Socket or credentials invalid, retrying...`)
+          
+          // Force reconnection
+          await restartWhatsAppConnection()
+          await new Promise(resolve => setTimeout(resolve, 3000))
+          
+          socket = await getWhatsAppSocket()
+          
+          if (!socket || !socket.authState?.creds?.me) {
+            console.log(`❌ [SIMPLE] Socket still invalid after retry`)
+            await this.updateMessageStatus(messageRecord.id, 'FAILED', 'Invalid socket after retry')
+            return { success: false, error: 'Socket invalid after retry' }
+          }
+        }
+        
+        console.log(`📡 [SIMPLE] Socket validated, sending message...`)
+      } catch (socketError) {
+        console.error(`❌ [SIMPLE] Failed to get socket:`, socketError)
+        await this.updateMessageStatus(messageRecord.id, 'FAILED', 'Socket connection failed')
+        return { success: false, error: 'Socket connection failed' }
+      }
       
-      const waMessage = await socket.sendMessage(formattedPhone, { text: message })
+      // Send message with timeout protection and retry logic
+      let sendAttempts = 0;
+      const maxSendAttempts = 2;
+      let waMessage;
       
-      // Update message status
+      while (sendAttempts < maxSendAttempts) {
+        try {
+          console.log(`📤 [SIMPLE] Send attempt ${sendAttempts + 1}/${maxSendAttempts}`);
+          
+          waMessage = await Promise.race([
+            socket.sendMessage(formattedPhone, { text: message }),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Send timeout after 20s')), 20000)
+            )
+          ]);
+          
+          console.log(`✅ [SIMPLE] Message sent successfully on attempt ${sendAttempts + 1}`);
+          break; // Success, exit retry loop
+          
+        } catch (sendError) {
+          sendAttempts++;
+          const errorMessage = sendError instanceof Error ? sendError.message : 'Unknown error';
+          console.error(`❌ [SIMPLE] Send attempt ${sendAttempts} failed:`, errorMessage);
+          
+          // If timeout or connection error, try to reconnect
+          if (errorMessage.includes('timeout') || errorMessage.includes('connection')) {
+            if (sendAttempts < maxSendAttempts) {
+              console.log(`🔄 [SIMPLE] Attempting connection recovery...`);
+              try {
+                await restartWhatsAppConnection();
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                socket = await getWhatsAppSocket();
+              } catch (recoveryError) {
+                console.error(`❌ [SIMPLE] Recovery failed:`, recoveryError);
+              }
+            }
+          }
+          
+          // If this was the last attempt, throw the error
+          if (sendAttempts >= maxSendAttempts) {
+            throw sendError;
+          }
+          
+          // Wait before retry
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      
+      // Update message status after successful send
       await this.updateMessageStatus(messageRecord.id, 'SENT')
       
       console.log(`✅ [SIMPLE] Message sent successfully with ID: ${messageRecord.id}`)
@@ -132,7 +255,7 @@ class SimpleWhatsAppService {
       }
 
     } catch (error) {
-      console.error(`❌ [SIMPLE] Error sending message:`, error)
+      console.error(`❌ [SIMPLE] Error in sendMessage:`, error)
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -211,7 +334,8 @@ class SimpleWhatsAppService {
       storageMode: 'simple-local'
     }
     
-    console.log(`📊 [SIMPLE] Connection Status: connected=${status.isConnected}, hasQR=${status.hasQRCode}, error=${status.lastError}`);
+    // Only log status changes, not every request
+    // console.log(`📊 [SIMPLE] Connection Status: connected=${status.isConnected}, hasQR=${status.hasQRCode}, error=${status.lastError}`);
     
     return status
   }

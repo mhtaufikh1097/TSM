@@ -13,42 +13,17 @@ export async function GET(
     const token = searchParams.get('token')
     const role = searchParams.get('role') as 'qc' | 'pm' | null
     
-    // Check if using token authentication (from WhatsApp link)
-    let authenticatedUser = null
-    let isTokenAuth = false
+    // Check regular session authentication - removed token requirement
+    const session = await auth()
     
-    if (token && role) {
-      const tokenData = verifyIncidentToken(token)
-      if (!tokenData || tokenData.incidentId !== id || tokenData.role !== role) {
-        return NextResponse.json(
-          { error: "Invalid or expired token" },
-          { status: 401 }
-        )
-      }
-      isTokenAuth = true
-      // For token auth, we'll fetch user from token data
-      authenticatedUser = await prisma.user.findUnique({
-        where: { id: tokenData.userId }
-      })
-    } else {
-      // Check regular session authentication
-      const session = await auth()
-      
-      if (!session?.user) {
-        return NextResponse.json(
-          { error: "Unauthorized" },
-          { status: 401 }
-        )
-      }
-      authenticatedUser = session.user
-    }
-
-    if (!authenticatedUser) {
+    if (!session?.user) {
       return NextResponse.json(
-        { error: "User not found" },
+        { error: "Unauthorized - Please login to view incident details" },
         { status: 401 }
       )
     }
+    
+    const authenticatedUser = session.user
 
     const incident = await prisma.incident.findUnique({
       where: { id },
@@ -110,8 +85,8 @@ export async function GET(
       )
     }
 
-    // Check permissions
-    if (!isTokenAuth && authenticatedUser.role === "REPORTER" && incident.reporterId !== authenticatedUser.id) {
+    // Check permissions - simplified without token auth
+    if (authenticatedUser.role === "REPORTER" && incident.reporterId !== authenticatedUser.id) {
       return NextResponse.json(
         { error: "Access denied" },
         { status: 403 }
@@ -135,10 +110,6 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params
-    const { searchParams } = new URL(request.url)
-    const token = searchParams.get('token')
-    const role = searchParams.get('role') as 'qc' | 'pm' | null
-    
     const body = await request.json()
     const { action, comment } = body
     
@@ -151,42 +122,17 @@ export async function PATCH(
       )
     }
     
-    // Check if using token authentication (from WhatsApp link)
-    let authenticatedUser = null
-    let isTokenAuth = false
+    // Check regular session authentication - removed token requirement
+    const session = await auth()
     
-    if (token && role) {
-      const tokenData = verifyIncidentToken(token)
-      if (!tokenData || tokenData.incidentId !== id || tokenData.role !== role) {
-        return NextResponse.json(
-          { error: "Invalid or expired token" },
-          { status: 401 }
-        )
-      }
-      isTokenAuth = true
-      // For token auth, we'll fetch user from token data
-      authenticatedUser = await prisma.user.findUnique({
-        where: { id: tokenData.userId }
-      })
-    } else {
-      // Check regular session authentication
-      const session = await auth()
-      
-      if (!session?.user) {
-        return NextResponse.json(
-          { error: "Unauthorized" },
-          { status: 401 }
-        )
-      }
-      authenticatedUser = session.user
-    }
-
-    if (!authenticatedUser) {
+    if (!session?.user) {
       return NextResponse.json(
-        { error: "User not found" },
+        { error: "Unauthorized - Please login to perform this action" },
         { status: 401 }
       )
     }
+    
+    const authenticatedUser = session.user
 
     // Get current incident
     const incident = await prisma.incident.findUnique({
