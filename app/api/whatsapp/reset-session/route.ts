@@ -1,6 +1,6 @@
 // API endpoint for resolving WhatsApp session conflicts
 import { NextRequest, NextResponse } from "next/server"
-import { forceSessionReset } from "@/lib/whatsapp/connection"
+import { forceSessionReset } from "@/scripts/force-session-reset"
 
 export async function POST(request: NextRequest) {
   try {
