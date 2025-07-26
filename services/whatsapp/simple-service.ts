@@ -20,279 +20,44 @@ interface ConnectionStatus {
 }
 
 class SimpleWhatsAppService {
-  private isConnected: boolean = false // Explicitly type as boolean
+  private isConnected: boolean = false
   private lastError: string | null = null
-  private connectionMonitor: NodeJS.Timeout | null = null
 
   constructor() {
     console.log('🚀 [SIMPLE] Initializing Simple WhatsApp Service')
     
-    // Enable auto-initialize for Simple Service only (safe since it uses unified connection)
-    setTimeout(() => {
-      this.initialize().catch(error => {
-        console.error('❌ [SIMPLE] Auto-initialization failed:', error)
-      })
-    }, 3000) // 3 second delay
-    
-    // Start connection monitor
-    this.startConnectionMonitor()
-    
-    // Listen to connection events
+    // Simplified initialization - no auto-init, just listen to events
     connectionEvents.on('connectionChange', (connected: boolean) => {
-      console.log(`📡 [SIMPLE] Connection event received: ${connected}`)
-      const previousState = this.isConnected
-      this.isConnected = Boolean(connected) // Ensure boolean type
+      console.log(`📡 [SIMPLE] Connection event: ${connected}`)
+      this.isConnected = Boolean(connected)
       
-      // Log significant changes
-      if (previousState !== this.isConnected) {
-        console.log(`🔄 [SIMPLE] Connection state changed: ${previousState} -> ${this.isConnected}`)
-        
-        // Clear error when connected
-        if (connected) {
-          this.lastError = null
-          console.log(`✅ [SIMPLE] Connection restored, error cleared`)
-        } else {
-          console.log(`❌ [SIMPLE] Connection lost`)
-        }
+      if (connected) {
+        this.lastError = null
+        console.log(`✅ [SIMPLE] Connected`)
+      } else {
+        console.log(`❌ [SIMPLE] Disconnected`)
       }
       
       // Update database status
-      this.updateSessionStatus(connected, null, connected ? null : 'Connection lost')
+      this.updateSessionStatus(connected)
     })
-  }
-
-  private startConnectionMonitor() {
-    // Monitor connection status every 30 seconds (reduced frequency)
-    this.connectionMonitor = setInterval(async () => {
-      try {
-        const actualConnected = Boolean(isWhatsAppConnected()) // Ensure boolean type
-        
-        // Only log and update if status actually changed
-        if (actualConnected !== this.isConnected) {
-          console.log(`🔄 [SIMPLE] Connection status changed: ${this.isConnected} -> ${actualConnected}`)
-          this.isConnected = actualConnected
-          
-          // Update database
-          await this.updateSessionStatus(actualConnected)
-        }
-      } catch (error) {
-        console.error('❌ [SIMPLE] Error in connection monitor:', error)
-        this.isConnected = false // Fail safe to false on error
-      }
-    }, 30000) // Increased from 15000 to 30000 (30 seconds)
-  }
-
-  async initialize() {
-    try {
-      console.log('🔌 [SIMPLE] Initializing WhatsApp connection...')
-      
-      const socket = await getWhatsAppSocket()
-      this.isConnected = isWhatsAppConnected()
-      this.lastError = null
-      
-      console.log('✅ [SIMPLE] WhatsApp connection established')
-      
-      // Update session status
-      await this.updateSessionStatus(true, null, null)
-      
-      return { success: true }
-      
-    } catch (error) {
-      console.error('❌ [SIMPLE] WhatsApp initialization failed:', error)
-      this.isConnected = false
-      this.lastError = error instanceof Error ? error.message : 'Unknown error'
-      
-      await this.updateSessionStatus(false, null, this.lastError)
-      
-      return { success: false, error: this.lastError }
-    }
-  }
-
-  async sendMessage(phone: string, message: string, type: string = 'SYSTEM_NOTIFICATION', incidentId?: string): Promise<{ success: boolean; messageId?: string; error?: string }> {
-    try {
-      console.log(`📤 [SIMPLE] Sending message to ${phone}:`, message.substring(0, 50) + '...')
-      
-      // ENHANCED CONNECTION CHECK WITH RETRY
-      let retryCount = 0
-      const maxRetries = 3
-      let isActuallyConnected = false
-      
-      while (retryCount < maxRetries && !isActuallyConnected) {
-        // Get real-time connection status
-        const connectionStatus = isWhatsAppConnected()
-        console.log(`🔍 [DEBUG] Attempt ${retryCount + 1}: isWhatsAppConnected: ${connectionStatus}`)
-        
-        if (connectionStatus) {
-          isActuallyConnected = true
-          break
-        }
-        
-        // If not connected, try to initialize
-        if (retryCount === 0) {
-          console.log(`🔄 [SIMPLE] Connection check failed, attempting initialization...`)
-          try {
-            await this.initialize()
-            // Wait a bit for connection to establish
-            await new Promise(resolve => setTimeout(resolve, 2000))
-          } catch (initError) {
-            console.error(`❌ [SIMPLE] Initialization failed:`, initError)
-          }
-        }
-        
-        retryCount++
-        if (retryCount < maxRetries && !isActuallyConnected) {
-          console.log(`⏳ [SIMPLE] Waiting 1s before retry ${retryCount + 1}/${maxRetries}...`)
-          await new Promise(resolve => setTimeout(resolve, 1000))
-        }
-      }
-      
-      if (!isActuallyConnected) {
-        console.log(`❌ [SIMPLE] WhatsApp not connected after ${maxRetries} attempts`)
-        return { success: false, error: 'WhatsApp not connected after retries' }
-      }
-      
-      console.log(`✅ [SIMPLE] Connection verified, proceeding with message send`)
-      
-      // Format phone number
-      const formattedPhone = this.formatPhoneNumber(phone)
-      
-      // Create message record
-      const messageRecord = await prisma.whatsAppMessage.create({
-        data: {
-          phone: formattedPhone.replace('@s.whatsapp.net', ''),
-          message,
-          type: type as any,
-          incidentId,
-          status: 'PENDING'
-        }
-      })
-
-      // Enhanced socket validation with retry
-      let socket;
-      try {
-        socket = await getWhatsAppSocket()
-        
-        // Additional safety checks with retry
-        if (!socket || !socket.authState?.creds?.me) {
-          console.log(`❌ [SIMPLE] Socket or credentials invalid, retrying...`)
-          
-          // Force reconnection
-          await restartWhatsAppConnection()
-          await new Promise(resolve => setTimeout(resolve, 3000))
-          
-          socket = await getWhatsAppSocket()
-          
-          if (!socket || !socket.authState?.creds?.me) {
-            console.log(`❌ [SIMPLE] Socket still invalid after retry`)
-            await this.updateMessageStatus(messageRecord.id, 'FAILED', 'Invalid socket after retry')
-            return { success: false, error: 'Socket invalid after retry' }
-          }
-        }
-        
-        console.log(`📡 [SIMPLE] Socket validated, sending message...`)
-      } catch (socketError) {
-        console.error(`❌ [SIMPLE] Failed to get socket:`, socketError)
-        await this.updateMessageStatus(messageRecord.id, 'FAILED', 'Socket connection failed')
-        return { success: false, error: 'Socket connection failed' }
-      }
-      
-      // Send message with timeout protection and retry logic
-      let sendAttempts = 0;
-      const maxSendAttempts = 2;
-      let waMessage;
-      
-      while (sendAttempts < maxSendAttempts) {
-        try {
-          console.log(`📤 [SIMPLE] Send attempt ${sendAttempts + 1}/${maxSendAttempts}`);
-          
-          waMessage = await Promise.race([
-            socket.sendMessage(formattedPhone, { text: message }),
-            new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Send timeout after 20s')), 20000)
-            )
-          ]);
-          
-          console.log(`✅ [SIMPLE] Message sent successfully on attempt ${sendAttempts + 1}`);
-          break; // Success, exit retry loop
-          
-        } catch (sendError) {
-          sendAttempts++;
-          const errorMessage = sendError instanceof Error ? sendError.message : 'Unknown error';
-          console.error(`❌ [SIMPLE] Send attempt ${sendAttempts} failed:`, errorMessage);
-          
-          // If timeout or connection error, try to reconnect
-          if (errorMessage.includes('timeout') || errorMessage.includes('connection')) {
-            if (sendAttempts < maxSendAttempts) {
-              console.log(`🔄 [SIMPLE] Attempting connection recovery...`);
-              try {
-                await restartWhatsAppConnection();
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                socket = await getWhatsAppSocket();
-              } catch (recoveryError) {
-                console.error(`❌ [SIMPLE] Recovery failed:`, recoveryError);
-              }
-            }
-          }
-          
-          // If this was the last attempt, throw the error
-          if (sendAttempts >= maxSendAttempts) {
-            throw sendError;
-          }
-          
-          // Wait before retry
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-      }
-      
-      // Update message status after successful send
-      await this.updateMessageStatus(messageRecord.id, 'SENT')
-      
-      console.log(`✅ [SIMPLE] Message sent successfully with ID: ${messageRecord.id}`)
-      
-      return {
-        success: true,
-        messageId: messageRecord.id
-      }
-
-    } catch (error) {
-      console.error(`❌ [SIMPLE] Error in sendMessage:`, error)
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
-    }
-  }
-
-  private formatPhoneNumber(phone: string): string {
-    // Remove all non-digit characters
-    let cleaned = phone.replace(/\D/g, '')
     
-    // Handle Indonesian phone numbers
-    if (cleaned.startsWith('0')) {
-      cleaned = '62' + cleaned.substring(1)
-    } else if (!cleaned.startsWith('62')) {
-      cleaned = '62' + cleaned
-    }
-    
-    return cleaned + '@s.whatsapp.net'
-  }
-
-  private async updateMessageStatus(messageId: string, status: string, error?: string) {
-    try {
-      await prisma.whatsAppMessage.update({
-        where: { id: messageId },
-        data: {
-          status: status as any,
-          error: error || null,
-          sentAt: status === 'SENT' ? new Date() : undefined
-        }
+    // AUTO-INITIALIZE on startup to ensure connection is ready for notifications
+    setTimeout(() => {
+      console.log('🔄 [SIMPLE] Auto-initializing WhatsApp connection...')
+      this.initialize().catch(error => {
+        console.log('🔍 [SIMPLE] Auto-init failed, will retry:', error.message)
+        // Retry after 5 seconds
+        setTimeout(() => {
+          this.initialize().catch(retryError => {
+            console.log('❌ [SIMPLE] Auto-init retry failed:', retryError.message)
+          })
+        }, 5000)
       })
-    } catch (updateError) {
-      console.error('❌ [SIMPLE] Error updating message status:', updateError)
-    }
+    }, 2000) // Initialize after 2 seconds - enough time for server to fully start
   }
 
-  private async updateSessionStatus(isConnected: boolean, qrCode?: string | null, error?: string | null) {
+  private async updateSessionStatus(isConnected: boolean, qrCode?: string | null) {
     try {
       await prisma.whatsAppSession.upsert({
         where: { id: 'main' },
@@ -315,29 +80,179 @@ class SimpleWhatsAppService {
     }
   }
 
-  async getConnectionStatus(): Promise<ConnectionStatus> {
-    // Get real-time connection status from Baileys
-    const actualConnected = isWhatsAppConnected()
+  async initialize() {
+    try {
+      console.log('🔌 [SIMPLE] Initializing...')
+      
+      // Try to get socket with timeout handling
+      try {
+        const socket = await getWhatsAppSocket()
+        this.isConnected = isWhatsAppConnected()
+        this.lastError = null
+        
+        console.log('✅ [SIMPLE] Connected')
+        await this.updateSessionStatus(true)
+        
+        return { success: true }
+      } catch (socketError) {
+        // Check if it's just a timeout but QR is available
+        const qrCode = getCurrentQRCode()
+        if (qrCode && socketError instanceof Error && socketError.message.includes('timeout')) {
+          console.log('⏳ [SIMPLE] Connection timeout but QR available - waiting for scan')
+          this.lastError = 'Waiting for QR scan'
+          await this.updateSessionStatus(false, qrCode)
+          return { success: false, error: 'Waiting for QR scan', qrAvailable: true }
+        }
+        throw socketError
+      }
+      
+    } catch (error) {
+      console.error('❌ [SIMPLE] Init failed:', error)
+      this.isConnected = false
+      this.lastError = error instanceof Error ? error.message : 'Init failed'
+      
+      // Check if QR is available even on error
+      const qrCode = getCurrentQRCode()
+      await this.updateSessionStatus(false, qrCode)
+      
+      return { 
+        success: false, 
+        error: this.lastError,
+        qrAvailable: qrCode !== null
+      }
+    }
+  }
+
+  async sendMessage(phone: string, message: string, type: string = 'SYSTEM_NOTIFICATION', incidentId?: string): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    try {
+      console.log(`📤 [SIMPLE] Sending to ${phone}`)
+      
+      // Enhanced connection check with auto-initialize fallback
+      if (!isWhatsAppConnected()) {
+        console.log('🔧 [SIMPLE] WhatsApp not connected, attempting to initialize...')
+        
+        try {
+          await this.initialize()
+          // Wait a moment for connection to establish
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          
+          if (!isWhatsAppConnected()) {
+            const qrCode = getCurrentQRCode()
+            if (qrCode) {
+              return { 
+                success: false, 
+                error: 'WhatsApp not connected - QR code available for scanning' 
+              }
+            } else {
+              return { 
+                success: false, 
+                error: 'WhatsApp not connected - please initialize connection first' 
+              }
+            }
+          }
+        } catch (initError) {
+          console.error('❌ [SIMPLE] Auto-initialize failed:', initError)
+          return { 
+            success: false, 
+            error: 'WhatsApp not connected - initialization failed' 
+          }
+        }
+      }
+      
+      console.log('✅ [SIMPLE] WhatsApp connection verified')
+      
+      // Format phone
+      const formattedPhone = this.formatPhoneNumber(phone)
+      
+      // Create DB record
+      const messageRecord = await prisma.whatsAppMessage.create({
+        data: {
+          phone: formattedPhone.replace('@s.whatsapp.net', ''),
+          message,
+          type: type as any,
+          incidentId,
+          status: 'PENDING'
+        }
+      })
+
+      try {
+        // Get socket and send
+        const socket = await getWhatsAppSocket()
+        
+        // Send with timeout
+        await Promise.race([
+          socket.sendMessage(formattedPhone, { text: message }),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Send timeout')), 10000)
+          )
+        ]);
+        
+        // Update status
+        await prisma.whatsAppMessage.update({
+          where: { id: messageRecord.id },
+          data: {
+            status: 'SENT',
+            sentAt: new Date()
+          }
+        })
+        
+        console.log(`✅ [SIMPLE] Message sent: ${messageRecord.id}`)
+        
+        return {
+          success: true,
+          messageId: messageRecord.id
+        }
+      } catch (sendError) {
+        // Update failed status
+        await prisma.whatsAppMessage.update({
+          where: { id: messageRecord.id },
+          data: {
+            status: 'FAILED',
+            error: sendError instanceof Error ? sendError.message : 'Send failed'
+          }
+        })
+        
+        throw sendError
+      }
+        
+    } catch (error) {
+      console.error(`❌ [SIMPLE] Send error:`, error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Send failed'
+      }
+    }
+  }
+
+  private formatPhoneNumber(phone: string): string {
+    // Remove all non-digit characters
+    let cleaned = phone.replace(/\D/g, '')
     
-    // Always sync with actual status - prioritize real connection state
-    this.isConnected = Boolean(actualConnected) // Ensure boolean type
+    // Handle Indonesian phone numbers
+    if (cleaned.startsWith('0')) {
+      cleaned = '62' + cleaned.substring(1)
+    } else if (!cleaned.startsWith('62')) {
+      cleaned = '62' + cleaned
+    }
+    
+    return cleaned + '@s.whatsapp.net'
+  }
+
+  async getConnectionStatus(): Promise<ConnectionStatus> {
+    const actualConnected = isWhatsAppConnected()
+    this.isConnected = Boolean(actualConnected)
     
     const qrCode = getCurrentQRCode()
     
-    const status = {
-      isConnected: Boolean(actualConnected), // Ensure boolean type, never undefined
+    return {
+      isConnected: Boolean(actualConnected),
       hasQRCode: qrCode !== null,
       qrCode: qrCode,
       lastConnected: actualConnected ? new Date() : null,
-      lastError: actualConnected ? null : this.lastError, // Clear error when connected
-      sessionExists: true, // Since we use auth_info_baileys
+      lastError: actualConnected ? null : this.lastError,
+      sessionExists: true,
       storageMode: 'simple-local'
     }
-    
-    // Only log status changes, not every request
-    // console.log(`📊 [SIMPLE] Connection Status: connected=${status.isConnected}, hasQR=${status.hasQRCode}, error=${status.lastError}`);
-    
-    return status
   }
 
   async getQRCode() {
@@ -426,7 +341,7 @@ class SimpleWhatsAppService {
       this.lastError = null
       
       // Update database
-      await this.updateSessionStatus(false, null, 'Session cleared')
+      await this.updateSessionStatus(false, null)
       
       return { success: true, message: 'Session cleared successfully. Please scan QR code to reconnect.' }
     } catch (error) {
@@ -436,4 +351,5 @@ class SimpleWhatsAppService {
   }
 }
 
+export default SimpleWhatsAppService
 export { SimpleWhatsAppService }

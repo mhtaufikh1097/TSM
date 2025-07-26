@@ -13,7 +13,7 @@ function getWhatsAppServiceInstance() {
     console.log('🔥 Creating SINGLE WhatsApp Service instance')
     
     // Always use simple service for stability
-    const { SimpleWhatsAppService } = require('./simple-service')
+    const SimpleWhatsAppService = require('./simple-service').default || require('./simple-service').SimpleWhatsAppService
     whatsappServiceInstance = new SimpleWhatsAppService()
     
     console.log('✅ Single WhatsApp Service instance created')
